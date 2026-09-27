@@ -1,0 +1,88 @@
+name: vt420 upstream sync
+
+# Merges upstream main into vt420 every night and pushes the merge only when the build, npm run check and the
+# vt420 tests pass. A failed sync opens an issue and leaves vt420 as it was. Upstream's own workflows stay
+# disabled in this fork.
+
+on:
+  schedule:
+    - cron: "23 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+  issues: write
+
+concurrency:
+  group: vt420-sync
+
+jobs:
+  sync:
+    if: github.repository == 'mrq1911/pi'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Disable upstream workflows
+        run: |
+          gh workflow list --repo "$GITHUB_REPOSITORY" --all --json id,path,state \
+            --jq '.[] | select(.state == "active" and .path != ".github/workflows/vt420-sync.yml") | .id' |
+            while read -r id; do gh workflow disable "$id" --repo "$GITHUB_REPOSITORY"; done
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: vt420
+          fetch-depth: 0
+
+      - name: Merge upstream main
+        id: merge
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --no-tags https://github.com/earendil-works/pi.git main
+          if git merge-base --is-ancestor FETCH_HEAD HEAD; then
+            echo "vt420 already contains upstream main"
+            echo "merged=false" >> "$GITHUB_OUTPUT"
+          else
+            git merge --no-edit -m "vt420: merge upstream main" FETCH_HEAD
+            echo "merged=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Node.js
+        if: steps.merge.outputs.merged == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install system dependencies
+        if: steps.merge.outputs.merged == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev fd-find ripgrep
+          sudo ln -s "$(which fdfind)" /usr/local/bin/fd
+
+      - name: Build, check and test
+        if: steps.merge.outputs.merged == 'true'
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+          npm run check
+          cd packages/coding-agent
+          node ../../node_modules/vitest/dist/cli.js --run test/vt420-*.test.ts
+
+      - name: Push
+        if: steps.merge.outputs.merged == 'true'
+        run: git push origin HEAD:vt420
+
+      - name: Report a failed sync
+        if: failure()
+        run: |
+          title="vt420: upstream sync failed"
+          open="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json number --jq length)"
+          if [ "$open" = "0" ]; then
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" \
+              --body "Merging upstream main into vt420 failed in $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. vt420 was left as it was."
+          fi

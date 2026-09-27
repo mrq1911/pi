@@ -10,6 +10,22 @@ A simplified pi CLI built for a real DEC VT420 on a serial line, or anything tha
 ./pi-vt420.sh --baud 19200 "explain src/main.ts"
 ```
 
+## Install
+
+`install.sh` makes a checkout the default `pi`: it installs the dependencies (`npm ci --ignore-scripts`), fetches the
+model catalog, links `pi` and `pi-vt420` in `~/.local/bin` to `pi-vt420.sh`, and keeps an npm-installed pi reachable
+as `pi-classic`.
+
+```bash
+git clone --branch vt420 https://github.com/mrq1911/pi.git ~/.local/share/pi-vt420
+~/.local/share/pi-vt420/packages/coding-agent/src/experimental/vt420/install.sh
+```
+
+`pi-vt420-update` pulls the branch and runs the same steps again. In the fork, a nightly workflow
+(`.github/workflows/vt420-sync.yml`) merges upstream `main` into `vt420` and pushes the merge only when the build,
+`npm run check` and the vt420 tests pass; a failed merge opens an issue and leaves the branch as it was. Updating the
+npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
+
 ## What it uses of the terminal
 
 - **Start-up animation**, after the DEC animations on [vt100.net](https://vt100.net/dec/animation/): digits of π
