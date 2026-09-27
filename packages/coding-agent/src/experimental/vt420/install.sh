@@ -31,8 +31,14 @@ if ! npm run --silent hydrate:model-data; then
 fi
 
 mkdir -p "$BIN"
-classic="$(npm root -g)/@earendil-works/pi-coding-agent/dist/bundle/cli.js"
-if [[ -f "$classic" ]]; then ln -sfn "$classic" "$BIN/pi-classic"; fi
+# the npm-installed pi: whatever pi pointed at before, or npm's global root, or the one next to $BIN
+classic=""
+if [[ -L "$BIN/pi" && "$(readlink -f "$BIN/pi")" != "$ROOT/pi-vt420.sh" ]]; then classic="$(readlink -f "$BIN/pi")"; fi
+for root in "$(npm root -g)" "$(dirname "$BIN")/lib/node_modules"; do
+	[[ -z "$classic" && -f "$root/@earendil-works/pi-coding-agent/dist/bundle/cli.js" ]] &&
+		classic="$root/@earendil-works/pi-coding-agent/dist/bundle/cli.js"
+done
+if [[ -n "$classic" ]]; then ln -sfn "$classic" "$BIN/pi-classic"; fi
 ln -sfn "$ROOT/pi-vt420.sh" "$BIN/pi"
 ln -sfn "$ROOT/pi-vt420.sh" "$BIN/pi-vt420"
 ln -sfn "$ROOT/packages/coding-agent/src/experimental/vt420/install.sh" "$BIN/pi-vt420-update"
