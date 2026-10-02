@@ -111,6 +111,7 @@ describe("vt420 input", () => {
 		const responses = parse(
 			"\x1b[?64;1;2;6;7;8;9;15;18;19;21c",
 			"\x1b[>41;10;0c",
+			"\x1b[0n",
 			"\x1b[24;80R",
 			"\x1bP0$r2$~\x1b\\",
 			"\x1bP1$r\x1b\\",
@@ -122,6 +123,7 @@ describe("vt420 input", () => {
 		expect(responses).toEqual([
 			{ kind: "da1", params: [64, 1, 2, 6, 7, 8, 9, 15, 18, 19, 21] },
 			{ kind: "da2", params: [41, 10, 0] },
+			{ kind: "status", ok: true },
 			{ kind: "cpr", row: 24, col: 80 },
 			{ kind: "setting", valid: true, data: "2$~" },
 			{ kind: "setting", valid: false, data: "" },

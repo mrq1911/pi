@@ -15,7 +15,7 @@ import { SessionManager } from "../../core/session-manager.ts";
 import { ATTR_BOLD, LINE_DOUBLE_BOTTOM, LINE_DOUBLE_TOP, LINE_SINGLE, type Line } from "./cells.ts";
 import { Charset } from "./charset.ts";
 import { LineEditor } from "./editor.ts";
-import type { InputEvent } from "./input.ts";
+import type { InputEvent, TerminalResponse } from "./input.ts";
 import type { Keymap, Vt420Action } from "./keys.ts";
 import { type Frame, type Renderer, rendererFor } from "./renderer.ts";
 import { SpeedMeter } from "./speed.ts";
@@ -60,6 +60,8 @@ export interface Vt420Io {
 	write(bytes: string): void;
 	onInput(listener: (event: InputEvent) => void): void;
 	onResize(handler: () => void): void;
+	/** Terminal reports after startup, which pace the frames. */
+	onResponse?(handler: ((response: TerminalResponse) => void) | undefined): void;
 	/** Resend terminal setup, for a redraw after the terminal was reset. */
 	reinitialize?(): void;
 }
@@ -78,6 +80,11 @@ export interface Vt420AppOptions {
 
 /** Longest working directory the footer shows; longer ones shrink to their last component. */
 const FOOTER_DIRECTORY_WIDTH = 24;
+
+/** Frames sent but not yet answered, at most: the terminal is never more than a frame behind. */
+const SYNC_WINDOW = 2;
+/** Line speed assumed for how long an answer may take when the real one is unknown: 9600 baud. */
+const SYNC_BYTES_PER_SECOND = 960;
 
 export const COMMANDS: readonly CommandInfo[] = [
 	{ name: "help", description: "keys and commands" },
@@ -193,6 +200,12 @@ export class Vt420App {
 	private renderTimer: ReturnType<typeof setTimeout> | undefined;
 	private animationTimer: ReturnType<typeof setTimeout> | undefined;
 	private pendingReturn: ReturnType<typeof setTimeout> | undefined;
+	/** Ends each frame: DSR 5, whose answer is four bytes, or DA1 where DSR goes unanswered. */
+	private syncRequest: { bytes: string; answer: TerminalResponse["kind"] } | undefined;
+	/** Bytes of each frame the terminal has not answered yet. */
+	private unanswered: number[] = [];
+	private syncTimer: ReturnType<typeof setTimeout> | undefined;
+	private framePending = false;
 	private lastFrameAt = 0;
 	private lastClearAt = 0;
 	private loginController: AbortController | undefined;
@@ -224,6 +237,16 @@ export class Vt420App {
 		await this.bindSession();
 		for (const notice of initial.notices ?? []) this.notice("warning", notice);
 		this.io.onInput((event) => this.handleInput(event));
+		const caps = this.io.caps;
+		if (this.io.onResponse && (caps.deviceStatus || caps.level > 0)) {
+			const sync = caps.deviceStatus
+				? { bytes: "\x1b[5n", answer: "status" as const }
+				: { bytes: "\x1b[c", answer: "da1" as const };
+			this.syncRequest = sync;
+			this.io.onResponse((response) => {
+				if (response.kind === sync.answer) this.answered();
+			});
+		}
 		this.io.onResize(() => {
 			this.renderer.resize(this.io.caps.rows, this.io.caps.columns);
 			this.requestRender();
@@ -239,7 +262,10 @@ export class Vt420App {
 		this.unsubscribe?.();
 		this.runtime.setRebindSession(undefined);
 		this.loginController?.abort();
-		for (const timer of [this.renderTimer, this.animationTimer, this.pendingReturn]) if (timer) clearTimeout(timer);
+		this.io.onResponse?.(undefined);
+		for (const timer of [this.renderTimer, this.animationTimer, this.pendingReturn, this.syncTimer]) {
+			if (timer) clearTimeout(timer);
+		}
 	}
 
 	/** Request exit; `run()` resolves afterwards. */
@@ -1275,6 +1301,11 @@ export class Vt420App {
 
 	private requestRender(): void {
 		if (this.closed || this.renderTimer) return;
+		if (this.unanswered.length >= SYNC_WINDOW) {
+			// the answer to an earlier frame draws this one
+			this.framePending = true;
+			return;
+		}
 		const sinceLast = Date.now() - this.lastFrameAt;
 		const delay = Math.max(0, 16 - sinceLast, this.io.backlogMs - 30);
 		this.renderTimer = setTimeout(() => {
@@ -1285,11 +1316,49 @@ export class Vt420App {
 
 	private renderNow(): void {
 		if (this.closed) return;
+		if (this.unanswered.length >= SYNC_WINDOW) {
+			this.framePending = true;
+			return;
+		}
 		const frame = this.compose();
-		const bytes = this.renderer.render(frame);
+		let bytes = this.renderer.render(frame);
+		if (bytes !== "" && this.syncRequest) {
+			bytes += this.syncRequest.bytes;
+			// counted before writing: a terminal can answer before write returns
+			this.unanswered.push(bytes.length);
+			this.armSync();
+		}
 		this.io.write(bytes);
 		this.lastFrameAt = Date.now();
 		this.scheduleAnimation();
+	}
+
+	/** The terminal answered after the oldest frame still out, so it has drawn that one. */
+	private answered(): void {
+		if (this.unanswered.length === 0) return;
+		this.unanswered.shift();
+		this.armSync();
+		this.releaseFrame();
+	}
+
+	/** An answer lost on the way must not stop the screen: past the time the frames out could take, they count as drawn. */
+	private armSync(): void {
+		clearTimeout(this.syncTimer);
+		this.syncTimer = undefined;
+		if (this.unanswered.length === 0) return;
+		const bytes = this.unanswered.reduce((sum, length) => sum + length, 0);
+		const ms = 1000 + (bytes * 1000) / (this.io.caps.bytesPerSecond ?? SYNC_BYTES_PER_SECOND);
+		this.syncTimer = setTimeout(() => {
+			this.syncTimer = undefined;
+			this.unanswered = [];
+			this.releaseFrame();
+		}, ms);
+	}
+
+	private releaseFrame(): void {
+		if (!this.framePending) return;
+		this.framePending = false;
+		this.requestRender();
 	}
 
 	private get animating(): boolean {

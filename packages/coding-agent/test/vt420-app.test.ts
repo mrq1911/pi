@@ -3,7 +3,7 @@ import { fauxAssistantMessage, fauxThinking, fauxToolCall } from "@earendil-work
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import { Vt420App, type Vt420Io, type Vt420Runtime } from "../src/experimental/vt420/app.ts";
-import type { InputEvent } from "../src/experimental/vt420/input.ts";
+import { type InputEvent, InputParser, type TerminalResponse } from "../src/experimental/vt420/input.ts";
 import { Keymap } from "../src/experimental/vt420/keys.ts";
 import { charsetDesignations, SESSION_MODES, statusLineType } from "../src/experimental/vt420/sequences.ts";
 import type { TerminalCapabilities } from "../src/experimental/vt420/terminal.ts";
@@ -11,10 +11,19 @@ import { formatTokens } from "../src/experimental/vt420/widgets.ts";
 import { createHarness, type Harness } from "./suite/harness.ts";
 import { EMU_BOLD, EMU_REVERSE, EMU_UNDERLINE, type EmulatorOptions, Vt420Emulator } from "./vt420-emulator.ts";
 
+interface Line {
+	/** How long the terminal takes to answer; a line that loses answers never does. */
+	answerDelayMs?: number;
+	drop?: boolean;
+}
+
 interface Running {
 	emulator: Vt420Emulator;
 	output: string[];
+	/** Frame requests sent and answered, and the most unanswered at once. */
+	line: { requests: number; answers: number; mostAhead: number };
 	done: Promise<void>;
+	input(event: InputEvent): void;
 	key(key: string): Promise<void>;
 	type(text: string): Promise<void>;
 	submit(text: string): Promise<void>;
@@ -35,6 +44,7 @@ async function start(
 	harness: Harness,
 	caps: Partial<TerminalCapabilities> = {},
 	statusState?: EmulatorOptions["statusState"],
+	line?: Line,
 ): Promise<Running> {
 	const capabilities: TerminalCapabilities = {
 		rows: 24,
@@ -50,12 +60,24 @@ async function start(
 		unicode: false,
 		...caps,
 	};
+	const counts = { requests: 0, answers: 0, mostAhead: 0 };
+	let respond: ((response: TerminalResponse) => void) | undefined;
+	const answers = new InputParser({
+		onEvent: (event) => {
+			if (event.type !== "response") return;
+			counts.answers++;
+			respond?.(event.response);
+		},
+	});
 	const emulator = new Vt420Emulator({
 		rows: capabilities.rows,
 		columns: capabilities.columns,
 		utf8: capabilities.unicode,
 		statusState,
 		lineAttributes: capabilities.doubleSize !== false,
+		onResponse: (bytes) => {
+			if (line && !line.drop) setTimeout(() => answers.feed(bytes), line.answerDelayMs ?? 0);
+		},
 	});
 	emulator.feed(
 		SESSION_MODES +
@@ -73,12 +95,21 @@ async function start(
 		backlogMs: 0,
 		write: (bytes) => {
 			output.push(bytes);
+			counts.requests += bytes.match(/\x1b\[5n|\x1b\[c/g)?.length ?? 0;
+			counts.mostAhead = Math.max(counts.mostAhead, counts.requests - counts.answers);
 			emulator.feed(Buffer.from(bytes, capabilities.unicode ? "utf8" : "latin1"));
 		},
 		onInput: (handler) => {
 			listener = handler;
 		},
 		onResize: () => {},
+		...(line
+			? {
+					onResponse: (handler: ((response: TerminalResponse) => void) | undefined) => {
+						respond = handler;
+					},
+				}
+			: {}),
 	};
 	const runtime: Vt420Runtime = {
 		get session() {
@@ -99,7 +130,9 @@ async function start(
 	return {
 		emulator,
 		output,
+		line: counts,
 		done,
+		input: (event) => listener?.(event),
 		key: (key) => send({ type: "key", key }),
 		type: (text) => send({ type: "text", text }),
 		submit: async (text) => {
@@ -162,6 +195,52 @@ describe("vt420 app", () => {
 		await app.key("ctrl+d");
 		await app.done;
 	});
+
+	it("paces its frames by the terminal's answers, never more than two ahead", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		const app = await start(harness, { deviceStatus: true }, undefined, { answerDelayMs: 40 });
+		for (let typed = 0; typed < 50; typed++) {
+			app.input({ type: "text", text: "x" });
+			await settle(4);
+		}
+		await settle(300);
+		expect(app.line.mostAhead).toBe(2);
+		// fewer frames than keys, the last showing all of them
+		expect(app.line.requests).toBeLessThan(30);
+		expect(app.screen()).toContain("x".repeat(50));
+		// DSR, whose answer is a few bytes, rather than DA1
+		expect(app.output.join("")).not.toContain("\x1b[c");
+		await app.key("ctrl+c");
+		await app.key("ctrl+d");
+		await app.done;
+	});
+
+	it("paces with DA1 when the terminal does not answer DSR, and gets past a lost answer", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		const da1 = await start(harness, {}, undefined, { answerDelayMs: 5 });
+		da1.input({ type: "text", text: "hello" });
+		await settle(100);
+		expect(da1.output.join("")).toContain("\x1b[c");
+		expect(da1.line.answers).toBe(da1.line.requests);
+		await da1.key("ctrl+c");
+		await da1.key("ctrl+d");
+		await da1.done;
+
+		const lost = await start(harness, { deviceStatus: true, bytesPerSecond: 1_000_000 }, undefined, { drop: true });
+		lost.input({ type: "text", text: "a" });
+		await settle(40);
+		lost.input({ type: "text", text: "b" });
+		await settle(40);
+		// the first frame and the "a" are out unanswered, so the "b" waits
+		expect(lost.screen()).not.toContain("ab");
+		await settle(1200);
+		expect(lost.screen()).toContain("ab");
+		await lost.key("ctrl+c");
+		await lost.key("ctrl+d");
+		await lost.done;
+	}, 10_000);
 
 	it("letter-spaces the banner and keeps headings at normal size without double-size lines", async () => {
 		const harness = await createHarness();

@@ -34,6 +34,8 @@ export interface TerminalCapabilities {
 	unicode: boolean;
 	/** Output speed in bytes per second, when the line speed is known. */
 	bytesPerSecond?: number;
+	/** The terminal answers DSR 5 with its four-byte status report, the cheapest way to learn it has drawn a frame. */
+	deviceStatus?: boolean;
 	/** DECSCNM at startup, when the terminal reported it: true for a light screen. */
 	screenReverse?: boolean;
 	/** DECSACE at startup, for putting it back after rectangle attribute changes. */
@@ -54,7 +56,8 @@ export interface Vt420TerminalOptions {
 	lines?: 24 | 36 | 48;
 	flowControl: boolean;
 	baud?: number;
-	escapeTimeoutMs: number;
+	/** How long a lone ESC waits for the rest of a sequence; by default 50 ms on emulators, longer on DEC terminals. */
+	escapeTimeoutMs?: number;
 	probeTimeoutMs: number;
 	logPath?: string;
 }
@@ -67,6 +70,8 @@ export interface ProbeResult {
 	settings: Map<string, string>;
 	/** DECRPSS replies of any kind; only VT400-class terminals send them. */
 	settingReplies: number;
+	/** The terminal answered DSR 5. */
+	status?: boolean;
 	upss?: SupplementalSet;
 	extent?: { lines: number; columns: number };
 	cpr?: { row: number; col: number };
@@ -116,8 +121,11 @@ function stty(args: string[]): { ok: boolean; output: string } {
 	}
 }
 
-/** Line speed of a serial device on stdout, from stty. Pseudo-terminals report nothing useful. */
-function detectSerialBaud(): number | undefined {
+/**
+ * Line speed from stty: a serial device's own, or the one sshd copied onto its pseudo-terminal from a client on a
+ * serial line. Other pseudo-terminals keep the default 38400, which says nothing.
+ */
+function detectLineSpeed(): number | undefined {
 	if (process.platform !== "linux") return undefined;
 	let device: string;
 	try {
@@ -125,9 +133,11 @@ function detectSerialBaud(): number | undefined {
 	} catch {
 		return undefined;
 	}
-	if (!/^\/dev\/tty(S|USB|ACM|AMA|XRUSB|mxc|THS|O)\d+$/.test(device)) return undefined;
+	const serial = /^\/dev\/tty(S|USB|ACM|AMA|XRUSB|mxc|THS|O)\d+$/.test(device);
+	if (!serial && process.env.SSH_TTY !== device) return undefined;
 	const speed = Number(stty(["speed"]).output);
-	return Number.isFinite(speed) && speed > 0 ? speed : undefined;
+	if (!Number.isFinite(speed) || speed <= 0) return undefined;
+	return serial || speed !== 38400 ? speed : undefined;
 }
 
 export function emptyProbe(): ProbeResult {
@@ -135,6 +145,13 @@ export function emptyProbe(): ProbeResult {
 }
 
 const SETTING_REQUESTS = ["$~", "*x", "$|", "*|"];
+
+/**
+ * A DEC keyboard sends a lone ESC only for Ctrl-[, while the terminal's answers keep arriving; one split by a slow
+ * or networked line must not turn into Escape and typed text.
+ */
+const DEC_ESCAPE_TIMEOUT_MS = 500;
+const EMULATOR_ESCAPE_TIMEOUT_MS = 50;
 
 /** Row of the UTF-8 test; row 1 would look like a modified F3 key report. */
 const UTF8_PROBE_ROW = 2;
@@ -151,6 +168,7 @@ export function probeQueries(): string {
 		'\x1b["v',
 		...SAVED_MODES.map(([mode]) => `\x1b[${mode}$p`),
 		"\x1b7\x1b[999;999H\x1b[6n\x1b8",
+		"\x1b[5n",
 		"\x1b[>c",
 		"\x1b[c",
 	].join("");
@@ -163,6 +181,9 @@ export function recordResponse(probe: ProbeResult, response: TerminalResponse): 
 			break;
 		case "da2":
 			probe.da2 = response.params;
+			break;
+		case "status":
+			probe.status = true;
 			break;
 		case "setting": {
 			probe.settingReplies++;
@@ -235,6 +256,7 @@ export function capabilitiesFromProbe(
 		eightBit: !unicode && options.eightBit,
 		unicode,
 		...(baud ? { bytesPerSecond: baud / 10 } : {}),
+		...(probe.status ? { deviceStatus: true } : {}),
 		...(screenReverse === undefined ? {} : { screenReverse }),
 		doubleSize: options.doubleSize === "on" || (options.doubleSize === "auto" && doubleWidth),
 		...(probe.settings.has("*x") ? { attributeExtent: Number(probe.settings.get("*x")) || 0 } : {}),
@@ -300,7 +322,7 @@ export class Vt420Terminal {
 		this.originalStdoutWrite = process.stdout.write;
 		this.originalStderrWrite = process.stderr.write;
 		this.parser = new InputParser({
-			escapeTimeoutMs: options.escapeTimeoutMs,
+			escapeTimeoutMs: options.escapeTimeoutMs ?? DEC_ESCAPE_TIMEOUT_MS,
 			supplemental: () => this.caps.supplemental,
 			utf8: () => this.caps.unicode,
 			onEvent: (event) => this.dispatch(event),
@@ -470,7 +492,7 @@ export class Vt420Terminal {
 
 	private applyProbe(): void {
 		const options = this.options;
-		const baud = options.baud ?? detectSerialBaud();
+		const baud = options.baud ?? detectLineSpeed();
 		Object.assign(
 			this.caps,
 			capabilitiesFromProbe(
@@ -480,9 +502,8 @@ export class Vt420Terminal {
 				baud,
 			),
 		);
-		if (this.caps.bytesPerSecond) {
-			this.parser.setEscapeTimeout(Math.max(options.escapeTimeoutMs, 4000 / this.caps.bytesPerSecond));
-		}
+		const lone = options.escapeTimeoutMs ?? (this.caps.unicode ? EMULATOR_ESCAPE_TIMEOUT_MS : DEC_ESCAPE_TIMEOUT_MS);
+		this.parser.setEscapeTimeout(Math.max(lone, this.caps.bytesPerSecond ? 4000 / this.caps.bytesPerSecond : 0));
 	}
 
 	private setup(): void {

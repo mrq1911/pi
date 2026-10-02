@@ -2,7 +2,7 @@
  * Keyboard and report parser for a VT420 (and anything that speaks the same ANSI/DEC dialect).
  *
  * LK401 keys arrive as CSI n ~ (editing keypad, F6-F20, Help, Do), SS3 (PF1-PF4, keypad in application
- * mode), CSI A-D (arrows) or C0 controls. Terminal reports (DA, CPR, DECRPM, DECRPSS, DECAUPSS, DECRPDE)
+ * mode), CSI A-D (arrows) or C0 controls. Terminal reports (DA, DSR, CPR, DECRPM, DECRPSS, DECAUPSS, DECRPDE)
  * share the same stream and are surfaced as responses. 8-bit C1 introducers are accepted as their 7-bit
  * equivalents, and GR bytes are decoded with the terminal's user-preferred supplemental set, or as UTF-8
  * when the terminal speaks it.
@@ -13,6 +13,7 @@ import { decodeGR, type SupplementalSet } from "./charset.ts";
 export type TerminalResponse =
 	| { kind: "da1"; params: number[] }
 	| { kind: "da2"; params: number[] }
+	| { kind: "status"; ok: boolean }
 	| { kind: "cpr"; row: number; col: number }
 	| { kind: "mode"; mode: string; value: number }
 	| { kind: "setting"; valid: boolean; data: string }
@@ -398,6 +399,10 @@ export class InputParser {
 				top: params[3] ?? 1,
 				page: params[4] ?? 1,
 			});
+			return;
+		}
+		if (prefix === "" && intermediates === "" && final === "n" && (params[0] === 0 || params[0] === 3)) {
+			this.respond({ kind: "status", ok: params[0] === 0 });
 			return;
 		}
 		if (prefix === "" && intermediates === "" && final === "R" && params.length === 2 && (params[0] ?? 0) > 1) {

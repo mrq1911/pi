@@ -60,8 +60,10 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
 - **Thinking ticker**: collapsed thinking is one line that scrolls left as tokens arrive, so the latest ones are
   always in view; once the model moves on, the line settles on how the thinking started. PF3 shows all of it.
 - **Bandwidth**: a diff renderer with relative cursor moves, IND/RI hardware scrolling inside DECSTBM margins, DCH to
-  scroll the thinking ticker in place, ECH, DECFRA for long rules, and frame pacing to the line speed. XON/XOFF stays
-  on, so Hold Screen works.
+  scroll the thinking ticker in place, ECH and DECFRA for long rules. Each frame ends with a DSR request (DA1 where
+  the terminal ignores DSR), and a frame goes out only while at most one other is unanswered, so the terminal is never
+  more than a frame behind, whatever the line speed, the buffers on the way or the flow control. XON/XOFF stays on, so
+  Hold Screen works.
 - **Probing and restore**: DA1/DA2, DECRQSS, DECRQM, DECRQUPSS, DECRQDE and CPR decide what to use; the modes, status
   line type and designations found at startup are restored on exit.
 - **Emulators**: a terminal that decodes UTF-8 (found by printing é as two bytes and reading the cursor back) gets the
@@ -107,9 +109,10 @@ reads keys or pasted codes from the keyboard.
 
 ## Terminal setup
 
-- Set-Up: VT400 mode with 7-bit controls, XON/XOFF, 8 bits no parity.
-- A serial login: `agetty -L 19200 ttyUSB0 vt420`. On serial ports the line speed is read with `stty`; elsewhere pass
-  `--baud` for pacing.
+- Set-Up: VT400 mode with 7-bit controls, XOFF at 64, 8 bits no parity, and Data Leads Only unless the other end
+  drives DSR: with Modem Control and no DSR the terminal stops sending and lights Wait.
+- A serial login: `agetty -L 19200 ttyUSB0 vt420`. The line speed is read with `stty` on serial ports and over ssh
+  from a client on one; elsewhere `--baud` sets it, for the animation and timeouts. Pacing does not need it.
 - `--columns 132` and `--lines 36|48` switch the terminal (DECSCPP/DECSNLS) and switch back on exit.
 
 ## Not included

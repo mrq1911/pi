@@ -318,7 +318,9 @@ async function main(): Promise<void> {
 		lines: config.lines,
 		flowControl: config.flowControl ?? true,
 		baud: config.baud,
-		escapeTimeoutMs: config.escapeTimeoutMs ?? Number(process.env.PI_VT420_ESC_TIMEOUT ?? 50),
+		escapeTimeoutMs:
+			config.escapeTimeoutMs ??
+			(process.env.PI_VT420_ESC_TIMEOUT ? Number(process.env.PI_VT420_ESC_TIMEOUT) : undefined),
 		probeTimeoutMs: 1500,
 		logPath: args.log ?? process.env.PI_VT420_LOG,
 	});

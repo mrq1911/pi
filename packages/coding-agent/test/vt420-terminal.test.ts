@@ -49,6 +49,7 @@ describe("vt420 terminal probe", () => {
 			screenReverse: false,
 			attributeExtent: 0,
 			doubleSize: true,
+			deviceStatus: true,
 		});
 		expect(result.modes.get("?7")).toBe(1);
 	});
@@ -66,6 +67,7 @@ describe("vt420 terminal probe", () => {
 		});
 		expect(caps.bytesPerSecond).toBeUndefined();
 		expect(caps.screenReverse).toBeUndefined();
+		expect(caps.deviceStatus).toBeUndefined();
 		expect(restoreSequence(emptyProbe(), caps, {})).not.toContain("?5");
 	});
 

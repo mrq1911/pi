@@ -633,6 +633,7 @@ export class Vt420Emulator {
 				this.respond(this.identity === "vt220" ? "\x1b[>1;10;0c" : "\x1b[>41;10;0c");
 				return;
 			case "n":
+				if (params[0] === 5) this.respond("\x1b[0n");
 				if (params[0] === 6) this.respond(`\x1b[${this.row + 1};${this.col + 1}R`);
 				return;
 			case '"v':
