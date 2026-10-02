@@ -88,7 +88,7 @@ describe("vt420 transcript thinking", () => {
 
 	it("rolls live thinking up two rows on a DEC terminal, a smooth scroll for each line it fills", () => {
 		const rolling = { ...context(), rollThinking: true };
-		expect(linesText(thinkingBlock("", true).render(rolling))).toEqual(["∴ thinking", ""]);
+		expect(linesText(thinkingBlock("", true).render(rolling))).toEqual(["° thinking", ""]);
 		const renderer = new Renderer({
 			rows: 4,
 			columns: WIDTH,

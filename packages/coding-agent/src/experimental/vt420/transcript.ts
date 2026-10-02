@@ -255,16 +255,17 @@ function thinkingLine(thinking: string, live: boolean, context: RenderContext): 
 
 /**
  * Live thinking on two rows, the lower one filling as tokens arrive; once it is full the pair moves on a line,
- * which the renderer turns into a smooth scroll of the two rows. Wrapped from the start, so lines keep their breaks.
+ * which the renderer turns into a smooth scroll of the two rows. Wrapped from the start, so lines keep their breaks,
+ * and every other line has a hole in the margin, like continuous-form paper, which feeds up with it.
  */
 function thinkingWindow(thinking: string, id: string, context: RenderContext): Line[] {
 	const { charset, width } = context;
-	const marker = charset.pick("∴", "»");
+	const hole = charset.cells(`${charset.pick("°", "o")} `);
 	const text = charset.cells(flattenThinking(thinking));
 	const lines = text.length === 0 ? [charset.cells("thinking")] : wrapCells(text, Math.max(1, width - 2));
 	const first = Math.max(0, lines.length - 2);
-	return [first, first + 1].map((line, row) => ({
-		cells: [...charset.cells(row === 0 ? `${marker} ` : "  "), ...(lines[line] ?? [])],
+	return [first, first + 1].map((line) => ({
+		cells: [...(line % 2 === 0 ? hole : charset.cells("  ")), ...(lines[line] ?? [])],
 		attr: LINE_SINGLE,
 		roll: { id, line },
 	}));

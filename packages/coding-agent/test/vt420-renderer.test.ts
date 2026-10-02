@@ -284,6 +284,22 @@ describe("vt420 renderer", () => {
 		expect(rolled).not.toContain("?4h");
 	});
 
+	it("jumps over a page on a terminal set to smooth scroll, and glides a line or two", () => {
+		const lines = Array.from({ length: 30 }, (_, index) => `transcript line ${index} with some text`);
+		const region = { top: 0, bottom: 8 };
+		const s = setup({ smoothScroll: true });
+		s.draw(frameOf(s.charset, [...lines.slice(10, 19), "", "status", "editor"], { scroll: region }));
+		const page = frameOf(s.charset, [...lines.slice(4, 13), "", "status", "editor"], { scroll: region });
+		const paged = s.draw(page);
+		expect(paged).toMatch(/\x1b\[\?4l(\x1b\[H)?(\x1bM){6}\x1b\[\?4h/);
+		expectScreen(s, page);
+		const line = frameOf(s.charset, [...lines.slice(5, 14), "", "status", "editor"], { scroll: region });
+		const glided = s.draw(line);
+		expect(glided).toContain("\x1bD");
+		expect(glided).not.toContain("?4l");
+		expectScreen(s, line);
+	});
+
 	it("letter-spaces double-size lines for a terminal that ignores them", () => {
 		const s = setup({ doubleSize: false, unicode: true });
 		const pi = s.charset.cells(" π", ATTR_BOLD);

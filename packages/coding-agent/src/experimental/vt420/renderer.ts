@@ -108,6 +108,8 @@ const STATUS_ROW = -2;
 /** Unchanged cells shorter than this between two changes are rewritten instead of skipped. */
 const BRIDGE_GAP = 3;
 const ERASE_MIN = 8;
+/** Longer hardware scrolls jump on a terminal set to smooth scroll, which would take seconds over a page. */
+const SMOOTH_SCROLL_MAX = 2;
 /** A DCH shift has to spare at least this many rewritten cells. */
 const SHIFT_MIN = 8;
 const FILL_MIN = 20;
@@ -164,8 +166,9 @@ export class Renderer {
 		this.out = [];
 		if (!this.valid) this.clearAll();
 		this.setRegion(frame.scroll);
-		this.hardwareScroll(frame);
+		// before the transcript scroll, which would otherwise take a rolled line for the whole region moving
 		this.roll(frame);
+		this.hardwareScroll(frame);
 		for (let row = 0; row < this.options.rows; row++) {
 			this.diffLine(row, frame.lines[row] ?? { cells: [], attr: LINE_SINGLE });
 		}
@@ -279,6 +282,9 @@ export class Renderer {
 		}
 		// Each scrolled line costs two bytes plus a cursor move; only scroll when it clearly saves output.
 		if (best === 0 || bestScore - baseline <= Math.abs(best) * 2 + 8) return;
+		// while a smooth-scrolling terminal glides through a page, what follows piles up and overflows its buffer
+		const jump = this.options.smoothScroll === true && Math.abs(best) > SMOOTH_SCROLL_MAX;
+		if (jump) this.emit("\x1b[?4l");
 		if (best > 0) {
 			this.moveTo(bottom, 0);
 			this.emit("\x1bD".repeat(best));
@@ -298,6 +304,7 @@ export class Renderer {
 						: { cells: new Array(this.options.columns).fill(BLANK), attr: LINE_SINGLE };
 			}
 		}
+		if (jump) this.emit("\x1b[?4h");
 		this.clampCursor();
 	}
 

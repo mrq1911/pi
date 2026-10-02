@@ -336,7 +336,7 @@ export class Vt420App {
 		const current = this.model;
 		const model = current ? `${current.provider}/${current.id}` : "no model";
 		const caps = this.io.caps;
-		const terminal = `${caps.name} ${caps.columns}x${caps.rows}${caps.statusLine ? " + status line" : ""}${caps.unicode ? " · UTF-8" : ""}`;
+		const terminal = `${caps.name} ${caps.columns}x${caps.rows}${caps.statusLine ? " + status line" : ""}${caps.smoothScroll ? " · smooth scroll" : ""}${caps.unicode ? " · UTF-8" : ""}`;
 		this.transcript.add({
 			kind: "lines",
 			render: (context) =>
@@ -1512,10 +1512,10 @@ export class Vt420App {
 		else if (this.retry) text = `Retrying in ${formatDuration(Math.max(0, this.retry.until - now) / 1000)}`;
 		else if (this.compacting) text = "Compacting";
 		else if (this.working) {
-			const output = this.charset.has("↓")
-				? `↓${formatTokens(this.footer.output)}`
-				: `${formatTokens(this.footer.output)} out`;
-			text = `Working ${formatDuration((now - this.workingSince) / 1000)} · ${output}`;
+			const speed = this.speed.display;
+			const approximate = speed?.approximate ? this.charset.pick("≃", "~") : "";
+			const rate = speed ? ` · ${approximate}${formatRate(speed.rate)} tok/s` : "";
+			text = `Working ${formatDuration((now - this.workingSince) / 1000)}${rate}`;
 		} else if (this.workedUntil) text = `Done ${formatDuration((now - this.workedUntil) / 1000)} ago`;
 		else text = "Idle";
 		return this.charset.cells(`π ${text}`);
