@@ -1938,6 +1938,8 @@ export class Vt420App {
 			const budget = Math.round((bytesPerSecond ?? 1920) / 160);
 			this.rain = new MatrixRain(rows, columns, {
 				maxDrops: Math.max(6, Math.min(Math.floor(columns / 4), budget)),
+				// as many glints as drops: about 12 at 19200 baud
+				glints: Math.max(4, budget),
 			});
 			// a message streaming now starts the rain from a little way back
 			this.rainSeen = Math.max(0, generatedText(this.streamingMessage()).length - 240);
