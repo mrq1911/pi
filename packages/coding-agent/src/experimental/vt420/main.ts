@@ -14,7 +14,7 @@ import {
 	createAgentSessionServices,
 } from "../../core/agent-session-runtime.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "../../core/http-dispatcher.ts";
-import { resolveCliModel } from "../../core/model-resolver.ts";
+import { resolveCliModel, resolveModelScopeWithDiagnostics, type ScopedModel } from "../../core/model-resolver.ts";
 import { SessionManager } from "../../core/session-manager.ts";
 import { SettingsManager } from "../../core/settings-manager.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "../../core/trust-manager.ts";
@@ -305,12 +305,23 @@ async function main(): Promise<void> {
 		});
 		if (resolved.warning) diagnostics.push({ type: "warning", message: resolved.warning });
 		if (resolved.error) diagnostics.push({ type: "error", message: resolved.error });
+		// the models that cycling goes through, as /scoped-models saved them
+		const patterns = settingsManager.getEnabledModels();
+		let scopedModels: ScopedModel[] | undefined;
+		if (patterns && patterns.length > 0) {
+			const scope = await resolveModelScopeWithDiagnostics(patterns, services.modelRuntime, {
+				signal: AbortSignal.timeout(15_000),
+			});
+			for (const diagnostic of scope.diagnostics) diagnostics.push({ type: "warning", message: diagnostic.message });
+			scopedModels = scope.scopedModels;
+		}
 		const created = await createAgentSessionFromServices({
 			services,
 			sessionManager: options.sessionManager,
 			sessionStartEvent: options.sessionStartEvent,
 			model: resolved.model,
 			thinkingLevel: args.thinking ?? resolved.thinkingLevel,
+			...(scopedModels ? { scopedModels } : {}),
 		});
 		if (created.modelFallbackMessage) diagnostics.push({ type: "warning", message: created.modelFallbackMessage });
 		return { ...created, services, diagnostics };

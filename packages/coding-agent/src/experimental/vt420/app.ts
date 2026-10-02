@@ -8,11 +8,25 @@
 
 import { homedir } from "node:os";
 import { basename } from "node:path";
-import type { AssistantMessage, AuthEvent, AuthPrompt } from "@earendil-works/pi-ai";
+import {
+	type AssistantMessage,
+	type AuthEvent,
+	type AuthPrompt,
+	getSupportedThinkingLevels,
+	type Transport,
+} from "@earendil-works/pi-ai";
 import { fuzzyFilter } from "@earendil-works/pi-tui";
 import type { AgentSession, AgentSessionEvent } from "../../core/agent-session.ts";
+import { DEFAULT_THINKING_LEVEL } from "../../core/defaults.ts";
+import {
+	configureHttpDispatcher,
+	formatHttpIdleTimeoutMs,
+	HTTP_IDLE_TIMEOUT_CHOICES,
+} from "../../core/http-dispatcher.ts";
+import { resolveModelScopeFromModels } from "../../core/model-resolver.ts";
 import { formatMissingSessionCwdPrompt, MissingSessionCwdError } from "../../core/session-cwd.ts";
 import { SessionManager } from "../../core/session-manager.ts";
+import { CACHE_WARMING_MODES, type CacheWarmingMode, type DefaultProjectTrust } from "../../core/settings-manager.ts";
 import { getProjectTrustOptions, ProjectTrustStore } from "../../core/trust-manager.ts";
 import { getChangelogPath, normalizeChangelogLinks, parseChangelog } from "../../utils/changelog.ts";
 import { copyToClipboard } from "../../utils/clipboard.ts";
@@ -154,6 +168,8 @@ export const COMMANDS: readonly CommandInfo[] = [
 	{ name: "login", args: "[provider]", description: "sign in to a provider" },
 	{ name: "logout", args: "[provider]", description: "remove stored credentials" },
 	{ name: "trust", description: "save whether this project's resources may load" },
+	{ name: "settings", description: "the settings that apply here" },
+	{ name: "scoped-models", description: "the models that next-model goes through" },
 	{ name: "copy", description: "copy the last answer to the clipboard" },
 	{ name: "changelog", description: "what is new in pi" },
 	{ name: "export", args: "[path]", description: "write the session as HTML, or JSONL for a .jsonl path" },
@@ -215,6 +231,19 @@ interface FooterStats {
 	contextTokens: number | null;
 	contextWindow: number;
 }
+
+/** One line of /settings: what it is now, and the values to pick from; one without them is a toggle. */
+interface SettingRow {
+	label: string;
+	value: string;
+	choices?: readonly string[];
+	apply(value: string): void;
+	/** A list of its own instead of values, returning to /settings when done. */
+	open?(back: () => void): void;
+}
+
+const TRUST_LABELS: Record<DefaultProjectTrust, string> = { ask: "Ask", always: "Always trust", never: "Never trust" };
+const SAVER_WAITS = [1, 2, 5, 10, 15, 30, 60];
 
 /** A path argument as pi reads it: in quotes up to the matching one, otherwise up to the first space. */
 function pathArgument(args: string): string | undefined {
@@ -990,6 +1019,12 @@ export class Vt420App {
 			case "trust":
 				this.showTrust();
 				return true;
+			case "settings":
+				this.showSettings();
+				return true;
+			case "scoped-models":
+				this.showScopedModels();
+				return true;
 			case "copy":
 				void this.copyLastAnswer();
 				return true;
@@ -1642,6 +1677,285 @@ export class Vt420App {
 			this.summarizing = false;
 			this.requestRender();
 		}
+	}
+
+	/** The settings of pi that do something here, and the screen saver's. */
+	private settingRows(): SettingRow[] {
+		const session = this.session;
+		const settings = session.settingsManager;
+		const onOff = (on: boolean): string => (on ? "on" : "off");
+		const keepSaver = (): void => {
+			this.options.saveSettings?.({ screensaver: this.saver, screensaverMinutes: this.saverMinutes });
+			this.armSaver();
+		};
+		const levels = Object.keys(settings.getAllModelThinkingLevels()).length;
+		return [
+			{
+				label: "Auto-compact",
+				value: onOff(session.autoCompactionEnabled),
+				apply: (value) => session.setAutoCompactionEnabled(value === "on"),
+			},
+			{
+				label: "Steering mode",
+				value: session.steeringMode,
+				choices: ["one-at-a-time", "all"],
+				apply: (value) => session.setSteeringMode(value as "all" | "one-at-a-time"),
+			},
+			{
+				label: "Follow-up mode",
+				value: session.followUpMode,
+				choices: ["one-at-a-time", "all"],
+				apply: (value) => session.setFollowUpMode(value as "all" | "one-at-a-time"),
+			},
+			{
+				label: "Thinking per model",
+				value: levels === 0 ? "none" : `${levels} configured`,
+				apply: () => {},
+				open: (back) => this.showModelThinking(back),
+			},
+			{
+				label: "Transport",
+				value: settings.getTransport(),
+				choices: ["sse", "websocket", "websocket-cached", "auto"],
+				apply: (value) => {
+					settings.setTransport(value as Transport);
+					session.agent.transport = value as Transport;
+				},
+			},
+			{
+				label: "HTTP idle timeout",
+				value: formatHttpIdleTimeoutMs(settings.getHttpIdleTimeoutMs()),
+				choices: HTTP_IDLE_TIMEOUT_CHOICES.map((choice) => choice.label),
+				apply: (value) => {
+					const ms = HTTP_IDLE_TIMEOUT_CHOICES.find((choice) => choice.label === value)?.timeoutMs ?? 0;
+					settings.setHttpIdleTimeoutMs(ms);
+					configureHttpDispatcher(ms);
+				},
+			},
+			{
+				label: "Cache warming",
+				value: settings.getCacheWarmingMode(),
+				choices: CACHE_WARMING_MODES,
+				apply: (value) => session.setCacheWarmingMode(value as CacheWarmingMode),
+			},
+			{
+				label: "Auto-resize images",
+				value: onOff(settings.getImageAutoResize()),
+				apply: (value) => settings.setImageAutoResize(value === "on"),
+			},
+			{
+				label: "Block images",
+				value: onOff(settings.getBlockImages()),
+				apply: (value) => settings.setBlockImages(value === "on"),
+			},
+			{
+				label: "Skill commands",
+				value: onOff(settings.getEnableSkillCommands()),
+				apply: (value) => settings.setEnableSkillCommands(value === "on"),
+			},
+			{
+				label: "Default project trust (next start)",
+				value: TRUST_LABELS[settings.getDefaultProjectTrust()],
+				choices: Object.values(TRUST_LABELS),
+				apply: (value) => {
+					const trust = (Object.keys(TRUST_LABELS) as DefaultProjectTrust[]).find(
+						(key) => TRUST_LABELS[key] === value,
+					);
+					if (trust) settings.setDefaultProjectTrust(trust);
+				},
+			},
+			{
+				label: "Install telemetry",
+				value: onOff(settings.getEnableInstallTelemetry()),
+				apply: (value) => settings.setEnableInstallTelemetry(value === "on"),
+			},
+			{
+				label: "Screen saver",
+				value: this.saver,
+				choices: ["off", "blank", "progress", "matrix"],
+				apply: (value) => {
+					if (isSaverMode(value)) this.saver = value;
+					keepSaver();
+				},
+			},
+			{
+				label: "Screen saver after",
+				value: `${this.saverMinutes} min`,
+				choices: SAVER_WAITS.map((minutes) => `${minutes} min`),
+				apply: (value) => {
+					this.saverMinutes = Number.parseInt(value, 10);
+					keepSaver();
+				},
+			},
+		];
+	}
+
+	/** `/settings`: a toggle flips at once, a choice opens its values, and the list comes back where it was. */
+	private showSettings(selected = 0): void {
+		const rows = this.settingRows();
+		this.openSelector(
+			"Settings",
+			rows.map((row, index) => ({ value: String(index), label: row.label, detail: row.value })),
+			(item) => {
+				const index = Number(item.value);
+				const row = rows[index]!;
+				const back = (): void => this.showSettings(index);
+				const apply = (value: string): void => {
+					try {
+						row.apply(value);
+					} catch (error) {
+						this.notice("error", errorMessage(error));
+					}
+					back();
+				};
+				if (row.open) row.open(back);
+				else if (!row.choices) apply(row.value === "on" ? "off" : "on");
+				else {
+					this.openSelector(
+						row.label,
+						row.choices.map((choice) => ({
+							value: choice,
+							label: choice,
+							detail: choice === row.value ? "current" : undefined,
+						})),
+						(choice) => apply(choice.value),
+						back,
+						Math.max(0, row.choices.indexOf(row.value)),
+					);
+				}
+			},
+			undefined,
+			selected,
+		);
+	}
+
+	/** The default thinking level per model: a model, then its level, or back to the global default. */
+	private showModelThinking(back: () => void, selected = 0): void {
+		const session = this.session;
+		const settings = session.settingsManager;
+		const current = session.model;
+		const models = [...session.modelRuntime.getAvailableSnapshot()].sort(
+			(left, right) =>
+				Number(right === current) - Number(left === current) || left.provider.localeCompare(right.provider),
+		);
+		if (models.length === 0) {
+			this.notice("warning", "No models available");
+			back();
+			return;
+		}
+		this.openSelector(
+			"Thinking per model",
+			models.map((model, index) => ({
+				value: String(index),
+				label: `${model.id} [${model.provider}]`,
+				detail: settings.getModelThinkingLevel(model.provider, model.id),
+			})),
+			(item) => {
+				const index = Number(item.value);
+				const model = models[index]!;
+				const set = settings.getModelThinkingLevel(model.provider, model.id);
+				const levels: string[] = model.reasoning ? [...getSupportedThinkingLevels(model)] : ["off"];
+				if (set) levels.push("(clear)");
+				const again = (): void => this.showModelThinking(back, index);
+				this.openSelector(
+					`Thinking for ${model.id}`,
+					levels.map((level) => ({ value: level, label: level, detail: level === set ? "current" : undefined })),
+					(choice) => {
+						const isCurrent = model === session.model;
+						if (choice.value === "(clear)") {
+							settings.removeModelThinkingLevel(model.provider, model.id);
+							if (isCurrent)
+								session.setThinkingLevel(settings.getDefaultThinkingLevel() ?? DEFAULT_THINKING_LEVEL);
+						} else {
+							const level = choice.value as Parameters<typeof session.setThinkingLevel>[0];
+							settings.setModelThinkingLevel(model.provider, model.id, level);
+							if (isCurrent) session.setThinkingLevel(level);
+						}
+						this.refreshFooter();
+						again();
+					},
+					again,
+					Math.max(0, set ? levels.indexOf(set) : 0),
+				);
+			},
+			back,
+			selected,
+		);
+	}
+
+	/**
+	 * `/scoped-models`: which models next-model (F18) goes through, in order; the session follows each change at once,
+	 * and "Save" keeps it in settings.
+	 */
+	private showScopedModels(enabled?: string[] | null, selected = 0, unsaved = false): void {
+		const session = this.session;
+		const models = session.modelRuntime.getAvailableSnapshot();
+		const key = (model: { provider: string; id: string }): string => `${model.provider}/${model.id}`;
+		const ids = models.map(key);
+		let scope = enabled;
+		if (scope === undefined) {
+			if (session.scopedModels.length > 0) scope = session.scopedModels.map((scoped) => key(scoped.model));
+			else {
+				const patterns = session.settingsManager.getEnabledModels();
+				scope = patterns?.length
+					? resolveModelScopeFromModels(patterns, models).scopedModels.map((scoped) => key(scoped.model))
+					: null;
+			}
+		}
+		const on = (id: string): boolean => scope === null || (scope?.includes(id) ?? false);
+		const all = (list: string[] | null): boolean => list === null || ids.every((id) => list.includes(id));
+		const apply = (next: string[] | null, index: number): void => {
+			const usable = next?.filter((id) => ids.includes(id)) ?? [];
+			session.setScopedModels(
+				next === null || all(next) || usable.length === 0
+					? []
+					: resolveModelScopeFromModels(usable, models).scopedModels.map((scoped) => ({
+							model: scoped.model,
+							thinkingLevel: scoped.thinkingLevel,
+						})),
+			);
+			this.showScopedModels(all(next) ? null : next, index, true);
+		};
+		const count = scope === null ? "all" : `${scope.filter((id) => ids.includes(id)).length}/${ids.length}`;
+		const actions = [
+			{ value: "save", label: unsaved ? "Save to settings (unsaved)" : "Save to settings", detail: count },
+			{ value: "all", label: "Enable all" },
+			{ value: "none", label: "Clear all" },
+		];
+		const ordered = [...ids].sort((left, right) => {
+			const rank = (id: string): number =>
+				scope === null ? 0 : scope.includes(id) ? scope.indexOf(id) : ids.length;
+			return rank(left) - rank(right);
+		});
+		const mark = this.charset.pick("◆", "*");
+		this.openSelector(
+			"Scoped models",
+			[...actions, ...ordered.map((id) => ({ value: id, label: `${on(id) ? mark : " "} ${id}` }))],
+			(item) => {
+				const index =
+					item.value === "save" || item.value === "all" || item.value === "none"
+						? actions.findIndex((action) => action.value === item.value)
+						: actions.length + ordered.indexOf(item.value);
+				if (item.value === "save") {
+					session.settingsManager.setEnabledModels(scope === null || all(scope) ? undefined : [...scope]);
+					this.flash("Model selection saved to settings");
+					this.showScopedModels(scope, index, false);
+				} else if (item.value === "all") apply(null, index);
+				else if (item.value === "none") apply([], index);
+				else if (scope === null)
+					apply(
+						ids.filter((id) => id !== item.value),
+						index,
+					);
+				else
+					apply(
+						scope.includes(item.value) ? scope.filter((id) => id !== item.value) : [...scope, item.value],
+						index,
+					);
+			},
+			undefined,
+			selected,
+		);
 	}
 
 	/** One of `options` from the selector; undefined when cancelled. */

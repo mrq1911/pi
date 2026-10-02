@@ -438,6 +438,60 @@ describe("vt420 app", () => {
 		await app.done;
 	});
 
+	it("changes settings from /settings: toggles flip, choices open their values", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		const saved: unknown[] = [];
+		const app = await start(harness, {}, undefined, undefined, { saveSettings: (settings) => saved.push(settings) });
+		const autoCompact = harness.session.autoCompactionEnabled;
+		await app.submit("/settings");
+		expect(app.screen()).toContain("Steering mode");
+		await app.key("return");
+		expect(harness.session.autoCompactionEnabled).toBe(!autoCompact);
+		// back on the same row, which shows the new value
+		expect(app.screen()).toContain("Settings");
+		await app.key("down");
+		await app.key("return");
+		expect(app.screen()).toContain("one-at-a-time");
+		await app.type("all");
+		await app.key("return");
+		expect(harness.session.steeringMode).toBe("all");
+		await app.type("screen saver");
+		await app.key("return");
+		await app.type("matrix");
+		await app.key("return");
+		expect(saved).toEqual([{ screensaver: "matrix", screensaverMinutes: 10 }]);
+		await app.key("f11");
+		await app.key("ctrl+d");
+		await app.done;
+	});
+
+	it("picks the models next-model goes through with /scoped-models, and saves them", async () => {
+		const harness = await createHarness({ models: [{ id: "alpha" }, { id: "beta" }, { id: "gamma" }] });
+		harnesses.push(harness);
+		const app = await start(harness);
+		await app.submit("/scoped-models");
+		expect(app.screen()).toContain("Scoped models");
+		await app.type("beta");
+		await app.key("return");
+		// from all models to all but beta, at once in the session
+		expect(harness.session.scopedModels.map((scoped) => scoped.model.id).sort()).toEqual(["alpha", "gamma"]);
+		await app.type("save");
+		await app.key("return");
+		expect(
+			harness.settingsManager
+				.getEnabledModels()
+				?.map((id) => id.split("/").pop())
+				.sort(),
+		).toEqual(["alpha", "gamma"]);
+		await app.type("enable all");
+		await app.key("return");
+		expect(harness.session.scopedModels).toHaveLength(0);
+		await app.key("f11");
+		await app.key("ctrl+d");
+		await app.done;
+	});
+
 	it("letter-spaces the banner and keeps headings at normal size without double-size lines", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
