@@ -225,6 +225,25 @@ describe("vt420 app", () => {
 		await app.done;
 	});
 
+	it("sends a whole page to a DEC terminal in answered pieces, never more than two out", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		const app = await start(harness, { deviceStatus: true }, undefined, { answerDelayMs: 30 });
+		const before = app.output.length;
+		await app.key("help");
+		await settle(1500);
+		const sent = app.output.slice(before);
+		expect(sent.length).toBeGreaterThanOrEqual(4);
+		// pieces of about 160 bytes, each with its request, two at most on the line
+		expect(Math.max(...sent.map((piece) => piece.length))).toBeLessThanOrEqual(200);
+		expect(sent.every((piece) => piece.endsWith("\x1b[5n"))).toBe(true);
+		expect(app.line.mostAhead).toBeLessThanOrEqual(2);
+		expect(app.screen()).toContain("send, steer while working");
+		await app.key("f11");
+		await app.key("ctrl+d");
+		await app.done;
+	});
+
 	it("paces with DA1 when the terminal does not answer DSR, and gets past a lost answer", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
@@ -292,6 +311,39 @@ describe("vt420 app", () => {
 		await app.key("f8");
 		await settle(40);
 		expect(app.emulator.text(2)).toContain("VT420");
+		await app.key("ctrl+d");
+		await app.done;
+	});
+
+	it("rains what the model writes down the screen, and starts at once without minutes", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		const saved: unknown[] = [];
+		const app = await start(harness, {}, undefined, undefined, { saveSettings: (settings) => saved.push(settings) });
+		await app.submit("/screensaver matrix");
+		expect(saved).toEqual([{ screensaver: "matrix", screensaverMinutes: 10 }]);
+		// nothing generated yet: the π line alone
+		expect(
+			app.emulator
+				.screen()
+				.filter((row) => row !== "")
+				.map((row) => row.trim()),
+		).toEqual(["π"]);
+		const before = app.output.length;
+		harness.setResponses([fauxAssistantMessage("alpha bravo charlie delta echo foxtrot golf hotel india juliet")]);
+		void harness.session.prompt("spell it");
+		await settle(1500);
+		const sent = app.output.slice(before).join("");
+		// the screen moves down a line at a time, gliding, and words read top to bottom in their columns
+		expect(sent).toContain("\x1b[?4h");
+		expect(sent).toContain("\x1bM");
+		const rows = app.emulator.screen();
+		const columns = Array.from({ length: 80 }, (_, col) => rows.map((row) => row[col] ?? " ").join(""));
+		const words = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india", "juliet"];
+		expect(columns.some((text) => words.some((word) => text.includes(word)))).toBe(true);
+		await app.type("x");
+		expect(app.emulator.text(2)).toContain("VT420");
+		await waitForIdle(harness);
 		await app.key("ctrl+d");
 		await app.done;
 	});

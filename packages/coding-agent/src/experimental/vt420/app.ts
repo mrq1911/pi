@@ -18,7 +18,17 @@ import { LineEditor } from "./editor.ts";
 import type { InputEvent, TerminalResponse } from "./input.ts";
 import type { Keymap, Vt420Action } from "./keys.ts";
 import { type Frame, type Renderer, rendererFor } from "./renderer.ts";
-import { isSaverMode, SAVER_MINUTES, SAVER_MOVE_MS, type SaverMode, saverFrame, saverPlace } from "./saver.ts";
+import {
+	generatedText,
+	isSaverMode,
+	MatrixRain,
+	RAIN_STEP_MS,
+	SAVER_MINUTES,
+	SAVER_MOVE_MS,
+	type SaverMode,
+	saverFrame,
+	saverPlace,
+} from "./saver.ts";
 import { SpeedMeter } from "./speed.ts";
 import type { TerminalCapabilities } from "./terminal.ts";
 import { formatDuration, padCells, spaces, truncateCells } from "./text.ts";
@@ -92,6 +102,26 @@ const FOOTER_DIRECTORY_WIDTH = 24;
 const SYNC_WINDOW = 2;
 /** Line speed assumed for how long an answer may take when the real one is unknown: 9600 baud. */
 const SYNC_BYTES_PER_SECOND = 960;
+/**
+ * A DEC terminal gets a frame in pieces of at most this many bytes, each answered before the window lets more out,
+ * so a whole page never runs ahead of it: flow control that comes back over ssh comes too late to stop one.
+ */
+const SYNC_CHUNK = 160;
+
+/** Pieces joined into runs of at most `max` characters; a longer piece stays whole. */
+function chunks(parts: readonly string[], max: number): string[] {
+	const out: string[] = [];
+	let current = "";
+	for (const part of parts) {
+		if (current !== "" && current.length + part.length > max) {
+			out.push(current);
+			current = "";
+		}
+		current += part;
+	}
+	if (current !== "") out.push(current);
+	return out;
+}
 
 export const COMMANDS: readonly CommandInfo[] = [
 	{ name: "help", description: "keys and commands" },
@@ -108,7 +138,7 @@ export const COMMANDS: readonly CommandInfo[] = [
 	{ name: "reload", description: "reload skills, prompts and context files" },
 	{ name: "charset", description: "show every VT420 glyph" },
 	{ name: "redraw", description: "repaint the screen" },
-	{ name: "screensaver", args: "[off|blank|progress] [min]", description: "dark screen now, or set when" },
+	{ name: "screensaver", args: "[off|blank|progress|matrix] [min]", description: "dark screen now, or set when" },
 	{ name: "quit", description: "exit" },
 ];
 
@@ -210,8 +240,10 @@ export class Vt420App {
 	private pendingReturn: ReturnType<typeof setTimeout> | undefined;
 	/** Ends each frame: DSR 5, whose answer is four bytes, or DA1 where DSR goes unanswered. */
 	private syncRequest: { bytes: string; answer: TerminalResponse["kind"] } | undefined;
-	/** Bytes of each frame the terminal has not answered yet. */
+	/** Bytes of each piece the terminal has not answered yet. */
 	private unanswered: number[] = [];
+	/** Pieces of the last frame still to go out. */
+	private outbox: string[] = [];
 	private syncTimer: ReturnType<typeof setTimeout> | undefined;
 	private framePending = false;
 	private lastFrameAt = 0;
@@ -222,6 +254,10 @@ export class Vt420App {
 	/** The screen saver showing, and which; the next key only wakes the screen. */
 	private saving: SaverMode | undefined;
 	private saverPlace = { row: 0, col: 0 };
+	private rain: MatrixRain | undefined;
+	private rainTimer: ReturnType<typeof setInterval> | undefined;
+	/** How much of the streaming message has gone into the rain. */
+	private rainSeen = 0;
 	private lastClearAt = 0;
 	private loginController: AbortController | undefined;
 	private closed = false;
@@ -292,6 +328,7 @@ export class Vt420App {
 			if (timer) clearTimeout(timer);
 		}
 		clearInterval(this.saverMoveTimer);
+		clearInterval(this.rainTimer);
 	}
 
 	/** Request exit; `run()` resolves afterwards. */
@@ -460,6 +497,7 @@ export class Vt420App {
 				} else if (event.message.role === "assistant") {
 					this.streaming = this.transcript.add({ kind: "assistant", message: event.message, streaming: true });
 					this.speed.start();
+					this.rainSeen = 0;
 				} else if (event.message.role === "custom" && event.message.display) {
 					this.notice("info", messageText(event.message.content));
 				}
@@ -468,6 +506,7 @@ export class Vt420App {
 				if (event.message.role === "assistant" && this.streaming) {
 					this.updateAssistant(event.message);
 					this.speed.update(event.message, Date.now());
+					this.feedRain(event.message);
 				}
 				break;
 			case "message_end":
@@ -1336,7 +1375,7 @@ export class Vt420App {
 
 	private requestRender(): void {
 		if (this.closed || this.renderTimer) return;
-		if (this.unanswered.length >= SYNC_WINDOW) {
+		if (this.outbox.length > 0 || this.unanswered.length >= SYNC_WINDOW) {
 			// the answer to an earlier frame draws this one
 			this.framePending = true;
 			return;
@@ -1351,28 +1390,40 @@ export class Vt420App {
 
 	private renderNow(): void {
 		if (this.closed) return;
-		if (this.unanswered.length >= SYNC_WINDOW) {
+		if (this.outbox.length > 0 || this.unanswered.length >= SYNC_WINDOW) {
 			this.framePending = true;
 			return;
 		}
-		const frame = this.compose();
-		let bytes = this.renderer.render(frame);
-		if (bytes !== "" && this.syncRequest) {
-			bytes += this.syncRequest.bytes;
-			// counted before writing: a terminal can answer before write returns
-			this.unanswered.push(bytes.length);
-			this.armSync();
+		const parts = this.renderer.renderParts(this.compose());
+		if (parts.length > 0 && !this.syncRequest) this.io.write(parts.join(""));
+		else if (parts.length > 0) {
+			// an emulator takes a whole frame at once
+			this.outbox = this.io.caps.unicode ? [parts.join("")] : chunks(parts, SYNC_CHUNK);
+			this.pump();
 		}
-		this.io.write(bytes);
 		this.lastFrameAt = Date.now();
 		this.scheduleAnimation();
 	}
 
-	/** The terminal answered after the oldest frame still out, so it has drawn that one. */
+	/** Send waiting pieces while the terminal has answered all but one of those out. */
+	private pump(): void {
+		const sync = this.syncRequest;
+		if (!sync) return;
+		while (this.outbox.length > 0 && this.unanswered.length < SYNC_WINDOW) {
+			const bytes = this.outbox.shift()! + sync.bytes;
+			// counted before writing: a terminal can answer before write returns
+			this.unanswered.push(bytes.length);
+			this.armSync();
+			this.io.write(bytes);
+		}
+	}
+
+	/** The terminal answered after the oldest piece still out, so it has drawn that one. */
 	private answered(): void {
 		if (this.unanswered.length === 0) return;
 		this.unanswered.shift();
 		this.armSync();
+		this.pump();
 		this.releaseFrame();
 	}
 
@@ -1386,6 +1437,7 @@ export class Vt420App {
 		this.syncTimer = setTimeout(() => {
 			this.syncTimer = undefined;
 			this.unanswered = [];
+			this.pump();
 			this.releaseFrame();
 		}, ms);
 	}
@@ -1439,6 +1491,10 @@ export class Vt420App {
 
 	private compose(): Frame {
 		const { rows, columns, statusLine } = this.io.caps;
+		if (this.saving === "matrix" && this.rain?.active) {
+			const status = statusLine ? [] : undefined;
+			return { lines: this.rain.lines(), status, scroll: { top: 0, bottom: rows - 1 }, smooth: true };
+		}
 		if (this.saving) return saverFrame(rows, columns, this.saverLine(), this.saverPlace, statusLine);
 		const input = this.inputLayout(columns);
 		const maxInput = Math.max(1, Math.min(8, Math.floor(rows / 4)));
@@ -1481,8 +1537,16 @@ export class Vt420App {
 		this.saving = mode;
 		// a light screen would stay lit
 		if (this.io.caps.screenReverse) this.io.write("\x1b[?5l");
+		if (mode === "matrix") {
+			const { rows, columns } = this.io.caps;
+			this.rain = new MatrixRain(rows, columns);
+			// a message streaming now starts the rain from a little way back
+			this.rainSeen = Math.max(0, generatedText(this.streamingMessage()).length - 240);
+			this.feedRain(this.streamingMessage());
+			this.rainTimer = setInterval(() => this.rainTick(), RAIN_STEP_MS);
+		}
 		this.moveSaver();
-		if (mode === "progress")
+		if (mode === "progress" || mode === "matrix")
 			this.saverMoveTimer = setInterval(() => this.moveSaver(), this.options.saverMoveMs ?? SAVER_MOVE_MS);
 	}
 
@@ -1496,14 +1560,42 @@ export class Vt420App {
 		this.saving = undefined;
 		clearInterval(this.saverMoveTimer);
 		this.saverMoveTimer = undefined;
+		clearInterval(this.rainTimer);
+		this.rainTimer = undefined;
+		this.rain = undefined;
 		if (this.io.caps.screenReverse) this.io.write("\x1b[?5h");
 		this.armSaver();
 		this.requestRender();
 	}
 
+	/** Words the model wrote since the last update, into the rain. */
+	private feedRain(message: AssistantMessage | undefined): void {
+		if (!this.rain) return;
+		const text = generatedText(message);
+		if (text.length < this.rainSeen) this.rainSeen = 0;
+		if (text.length === this.rainSeen) return;
+		this.rain.feed(this.charset.cells(text.slice(this.rainSeen).replace(/\s+/g, " ")));
+		this.rainSeen = text.length;
+	}
+
+	/** The rain falls a line once the terminal has drawn the last, so every line glides on its own. */
+	private rainTick(): void {
+		if (!this.rain || this.outbox.length > 0 || this.unanswered.length > 0) return;
+		if (!this.rain.active) return;
+		this.rain.step();
+		// the last drops gone, the progress line comes back
+		if (!this.rain.active) this.moveSaver();
+		this.requestRender();
+	}
+
+	private streamingMessage(): AssistantMessage | undefined {
+		const content = this.streaming?.content;
+		return content?.kind === "assistant" ? content.message : undefined;
+	}
+
 	/** The progress saver's line: how the work goes while it runs, and only π once it is done. */
 	private saverLine(): number[] | undefined {
-		if (this.saving !== "progress") return undefined;
+		if (this.saving !== "progress" && this.saving !== "matrix") return undefined;
 		const now = Date.now();
 		let text = "";
 		if (this.mode.kind === "prompt" || this.mode.kind === "selector") text = "Waiting for you";
@@ -1518,31 +1610,38 @@ export class Vt420App {
 		return this.charset.cells(text ? `π ${text}` : "π");
 	}
 
-	/** `/screensaver` starts it now; a mode or a number of minutes changes the setting and keeps it. */
+	/**
+	 * `/screensaver` with a mode keeps it as the setting, and with minutes the wait; without minutes, or with 0, it
+	 * starts at once.
+	 */
 	private screensaverCommand(args: string): void {
-		const words = args.split(/\s+/).filter((word) => word !== "");
-		if (words.length === 0) {
-			this.startSaver(this.saver === "off" ? "progress" : this.saver);
-			return;
-		}
-		for (const word of words) {
+		let now = true;
+		let changed = false;
+		for (const word of args.split(/\s+/).filter((part) => part !== "")) {
 			const minutes = Number(word);
-			if (isSaverMode(word)) this.saver = word;
-			else if (Number.isFinite(minutes) && minutes > 0) this.saverMinutes = minutes;
-			else {
-				this.notice("warning", "Usage: /screensaver [off|blank|progress] [minutes]");
+			if (isSaverMode(word)) {
+				this.saver = word;
+				changed = true;
+			} else if (Number.isFinite(minutes) && minutes > 0) {
+				this.saverMinutes = minutes;
+				now = false;
+				changed = true;
+			} else if (minutes !== 0) {
+				this.notice("warning", "Usage: /screensaver [off|blank|progress|matrix] [minutes]");
 				return;
 			}
 		}
-		try {
-			this.options.saveSettings?.({ screensaver: this.saver, screensaverMinutes: this.saverMinutes });
-		} catch (error) {
-			this.notice("error", `Cannot keep the setting: ${errorMessage(error)}`);
+		if (changed) {
+			try {
+				this.options.saveSettings?.({ screensaver: this.saver, screensaverMinutes: this.saverMinutes });
+			} catch (error) {
+				this.notice("error", `Cannot keep the setting: ${errorMessage(error)}`);
+			}
 		}
 		this.armSaver();
-		this.flash(
-			this.saver === "off" ? "Screen saver off" : `Screen saver: ${this.saver} after ${this.saverMinutes} min`,
-		);
+		if (this.saver === "off" && changed) this.flash("Screen saver off");
+		else if (now) this.startSaver(this.saver === "off" ? "progress" : this.saver);
+		else this.flash(`Screen saver: ${this.saver} after ${this.saverMinutes} min`);
 	}
 
 	private inputLayout(width: number): { rows: number[][]; cursorRow: number; cursorCol: number } {

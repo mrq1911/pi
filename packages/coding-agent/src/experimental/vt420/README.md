@@ -63,17 +63,21 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
   Emulators, which do not scroll smoothly, get one line that scrolls left instead. Once the model moves on, it settles
   on one line with how the thinking started. PF3 shows all of it.
 - **Bandwidth**: a diff renderer with relative cursor moves, IND/RI hardware scrolling inside DECSTBM margins, DCH to
-  scroll the emulators' thinking ticker in place, ECH and DECFRA for long rules. Each frame ends with a DSR request
-  (DA1 where the terminal ignores DSR), and a frame goes out only while at most one other is unanswered, so the
-  terminal is never more than a frame behind, whatever the line speed, the buffers on the way or the flow control.
-  XON/XOFF stays on, so Hold Screen works. On a terminal set to smooth scroll, scrolls of more than two lines jump:
-  gliding through a page takes seconds, and what arrives meanwhile would overflow it.
+  scroll the emulators' thinking ticker in place, ECH and DECFRA for long rules. A frame goes to a DEC terminal in
+  pieces of 160 bytes at most, each ending with a DSR request (DA1 where the terminal ignores DSR), and a piece goes
+  out only while at most one other is unanswered, so even a page never runs ahead of the terminal, whatever the line
+  speed, the buffers on the way or flow control that comes back over ssh too late to stop it; emulators get whole
+  frames paced the same way. XON/XOFF stays on, so Hold Screen works. On a terminal set to smooth scroll, scrolls of
+  more than two lines jump: gliding through a page takes seconds, and what arrives meanwhile would overflow it.
 - **Screen saver**: a model can work for hours, and a CRT keeps a picture it shows that long, so after ten minutes
   without a key the screen goes dark. `progress`, the default on DEC terminals, shows one line of how the work goes
   (`π Working 1h 05m · 41.2 tok/s`, `π Waiting for you`, and just `π` once the work is done) in another place every
-  half minute; `blank` shows nothing; `off` is the default on emulators. Any key wakes the screen and does nothing
-  else. `/screensaver` starts it at once; `/screensaver blank 5` sets the mode and minutes and keeps them in
-  `vt420.json` (`"screensaver"`, `"screensaverMinutes"`).
+  half minute; `matrix` rains down the words the model generates, the whole screen moving down a line at a time with
+  the terminal's smooth scroll and each word entering its column last letter first, bright, so it reads top to bottom
+  as it falls, with the progress line between showers; `blank` shows nothing; `off` is the default on emulators. Any
+  key wakes the screen and does nothing else. `/screensaver matrix` keeps the mode and starts it at once, as plain
+  `/screensaver` and `/screensaver 0` do; `/screensaver blank 5` keeps the mode and minutes in `vt420.json`
+  (`"screensaver"`, `"screensaverMinutes"`) for next time.
 - **Probing and restore**: DA1/DA2, DECRQSS, DECRQM, DECRQUPSS, DECRQDE and CPR decide what to use; the modes, status
   line type and designations found at startup are restored on exit.
 - **Emulators**: a terminal that decodes UTF-8 (found by printing é as two bytes and reading the cursor back) gets the

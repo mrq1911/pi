@@ -42,7 +42,7 @@ interface Vt420Config {
 	escapeTimeoutMs?: number;
 	/** The start-up animation. */
 	intro?: boolean;
-	screensaver?: "auto" | "off" | "blank" | "progress";
+	screensaver?: "auto" | "off" | "blank" | "progress" | "matrix";
 	screensaverMinutes?: number;
 }
 

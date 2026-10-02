@@ -66,6 +66,8 @@ export interface Frame {
 	cursor?: { row: number; col: number };
 	/** Scrolling region used for hardware scrolling, 0-based and inclusive. */
 	scroll: { top: number; bottom: number };
+	/** A hardware scroll of a line or two glides (DECSCLM), even on a terminal set to jump scroll. */
+	smooth?: boolean;
 }
 
 /** A renderer for what the terminal reported. */
@@ -162,6 +164,11 @@ export class Renderer {
 	}
 
 	render(desired: Frame): string {
+		return this.renderParts(desired).join("");
+	}
+
+	/** The frame in the pieces it is made of, each a whole sequence or character, so a line can pause between any two. */
+	renderParts(desired: Frame): string[] {
 		const frame = this.options.doubleSize === false ? { ...desired, lines: singleSize(desired.lines) } : desired;
 		this.out = [];
 		if (!this.valid) this.clearAll();
@@ -173,10 +180,10 @@ export class Renderer {
 			this.diffLine(row, frame.lines[row] ?? { cells: [], attr: LINE_SINGLE });
 		}
 		if (this.options.statusLine && frame.status) this.diffStatus(frame.status);
-		let body = this.out.join("");
+		const body = this.out;
 		this.out = [];
-		if (body.length > HIDE_CURSOR_OVER && this.cursorVisible !== false) {
-			body = `\x1b[?25l${body}`;
+		if (body.reduce((length, part) => length + part.length, 0) > HIDE_CURSOR_OVER && this.cursorVisible !== false) {
+			body.unshift("\x1b[?25l");
 			this.cursorVisible = false;
 		}
 		if (frame.cursor) {
@@ -189,7 +196,7 @@ export class Renderer {
 			this.emit("\x1b[?25l");
 			this.cursorVisible = false;
 		}
-		return body + this.out.join("");
+		return [...body, ...this.out];
 	}
 
 	private emit(sequence: string): void {
@@ -284,7 +291,9 @@ export class Renderer {
 		if (best === 0 || bestScore - baseline <= Math.abs(best) * 2 + 8) return;
 		// while a smooth-scrolling terminal glides through a page, what follows piles up and overflows its buffer
 		const jump = this.options.smoothScroll === true && Math.abs(best) > SMOOTH_SCROLL_MAX;
+		const glide = frame.smooth === true && this.options.smoothScroll !== true && Math.abs(best) <= SMOOTH_SCROLL_MAX;
 		if (jump) this.emit("\x1b[?4l");
+		if (glide) this.emit("\x1b[?4h");
 		if (best > 0) {
 			this.moveTo(bottom, 0);
 			this.emit("\x1bD".repeat(best));
@@ -304,6 +313,7 @@ export class Renderer {
 						: { cells: new Array(this.options.columns).fill(BLANK), attr: LINE_SINGLE };
 			}
 		}
+		if (glide) this.emit("\x1b[?4l");
 		if (jump) this.emit("\x1b[?4h");
 		this.clampCursor();
 	}
