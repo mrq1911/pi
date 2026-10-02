@@ -492,6 +492,25 @@ describe("vt420 app", () => {
 		await app.done;
 	});
 
+	it("walks through /bug with pi's consents", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		const app = await start(harness);
+		await app.submit("/bug the screen froze");
+		expect(app.screen()).toContain("not shared publicly");
+		// the description comes prefilled with what followed /bug
+		expect(app.screen()).toContain("the screen froze");
+		await app.key("return");
+		expect(app.screen()).toContain("Include the session transcript?");
+		await app.key("return");
+		expect(app.screen()).toContain("Upload Report");
+		await app.type("cancel");
+		await app.key("return");
+		expect(app.screen()).toContain("Bug report cancelled");
+		await app.key("ctrl+d");
+		await app.done;
+	});
+
 	it("letter-spaces the banner and keeps headings at normal size without double-size lines", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);

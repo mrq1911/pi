@@ -6,8 +6,10 @@
  * host-writable status line when the terminal has one, otherwise on the last row.
  */
 
-import { homedir } from "node:os";
-import { basename } from "node:path";
+import { spawn, spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { basename, join } from "node:path";
 import {
 	type AssistantMessage,
 	type AuthEvent,
@@ -15,8 +17,13 @@ import {
 	getSupportedThinkingLevels,
 	type Transport,
 } from "@earendil-works/pi-ai";
+import { DEFAULT_RADIUS_GATEWAY } from "@earendil-works/pi-ai/providers/radius-config";
 import { fuzzyFilter } from "@earendil-works/pi-tui";
+import { getAuthCredential } from "../../cli/auth-command.ts";
+import { getShareViewerUrl } from "../../config.ts";
 import type { AgentSession, AgentSessionEvent } from "../../core/agent-session.ts";
+import { bugReportArchiveFileName, writeBugReportArchive } from "../../core/bug-report.ts";
+import { uploadBugReport } from "../../core/bug-report-upload.ts";
 import { DEFAULT_THINKING_LEVEL } from "../../core/defaults.ts";
 import {
 	configureHttpDispatcher,
@@ -24,10 +31,19 @@ import {
 	HTTP_IDLE_TIMEOUT_CHOICES,
 } from "../../core/http-dispatcher.ts";
 import { resolveModelScopeFromModels } from "../../core/model-resolver.ts";
+import { getRadiusGatewayUrl, RADIUS_PROVIDER_ID } from "../../core/radius.ts";
 import { formatMissingSessionCwdPrompt, MissingSessionCwdError } from "../../core/session-cwd.ts";
 import { SessionManager } from "../../core/session-manager.ts";
 import { CACHE_WARMING_MODES, type CacheWarmingMode, type DefaultProjectTrust } from "../../core/settings-manager.ts";
 import { getProjectTrustOptions, ProjectTrustStore } from "../../core/trust-manager.ts";
+import {
+	DISCLAIMER as BUG_REPORT_DISCLAIMER,
+	TRANSCRIPT_NOTE as BUG_REPORT_TRANSCRIPT_NOTE,
+	type BugReportOptions,
+	buildBundle as buildBugReport,
+	recordInSession as recordBugReport,
+} from "../../modes/interactive/bug-report.ts";
+import { exportSessionForShare } from "../../modes/interactive/session-share.ts";
 import { getChangelogPath, normalizeChangelogLinks, parseChangelog } from "../../utils/changelog.ts";
 import { copyToClipboard } from "../../utils/clipboard.ts";
 import { ATTR_BOLD, LINE_DOUBLE_BOTTOM, LINE_DOUBLE_TOP, LINE_SINGLE, type Line } from "./cells.ts";
@@ -171,6 +187,8 @@ export const COMMANDS: readonly CommandInfo[] = [
 	{ name: "settings", description: "the settings that apply here" },
 	{ name: "scoped-models", description: "the models that next-model goes through" },
 	{ name: "copy", description: "copy the last answer to the clipboard" },
+	{ name: "share", description: "share the session through Radius or as a secret gist" },
+	{ name: "bug", args: "[what went wrong]", description: "report a bug to the pi developers" },
 	{ name: "changelog", description: "what is new in pi" },
 	{ name: "export", args: "[path]", description: "write the session as HTML, or JSONL for a .jsonl path" },
 	{ name: "reload", description: "reload skills, prompts and context files" },
@@ -293,6 +311,8 @@ export class Vt420App {
 	private retry: { attempt: number; max: number; until: number } | undefined;
 	private compacting: string | undefined;
 	private summarizing = false;
+	/** Something a command waits for, shown on the separator row; interrupt cancels it. */
+	private activity: { text: string; controller: AbortController } | undefined;
 	private queued = 0;
 	private flashText: { text: string; until: number } | undefined;
 	private footer: FooterStats = { input: 0, output: 0, cacheRead: 0, contextTokens: null, contextWindow: 0 };
@@ -901,6 +921,7 @@ export class Vt420App {
 	}
 
 	private interrupt(): void {
+		this.activity?.controller.abort();
 		const session = this.session;
 		const busy = this.working || this.bashRunning || session.isCompacting || session.isRetrying;
 		if (this.bashRunning) session.abortBash();
@@ -1027,6 +1048,12 @@ export class Vt420App {
 				return true;
 			case "copy":
 				void this.copyLastAnswer();
+				return true;
+			case "share":
+				void this.shareSession();
+				return true;
+			case "bug":
+				void this.reportBug(args);
 				return true;
 			case "changelog":
 				this.showChangelog();
@@ -1958,6 +1985,195 @@ export class Vt420App {
 		);
 	}
 
+	private startActivity(text: string): AbortController {
+		const controller = new AbortController();
+		this.activity = { text, controller };
+		this.requestRender();
+		return controller;
+	}
+
+	private endActivity(controller: AbortController): void {
+		if (this.activity?.controller === controller) this.activity = undefined;
+		this.requestRender();
+	}
+
+	/** `/share`: the session to Radius when signed in there, otherwise as a secret gist through gh, as pi shares. */
+	private async shareSession(): Promise<void> {
+		const session = this.session;
+		const dir = mkdtempSync(join(tmpdir(), "pi-share-"));
+		const controller = this.startActivity("Sharing");
+		try {
+			const jsonl = join(dir, "session.jsonl");
+			exportSessionForShare(jsonl, session);
+			const token = session.modelRuntime.getProvider(RADIUS_PROVIDER_ID)
+				? getAuthCredential(
+						await session.modelRuntime.getAuth(RADIUS_PROVIDER_ID, { minOAuthValidityMs: 5 * 60_000 }),
+					)
+				: undefined;
+			if (token) {
+				if (this.activity) this.activity.text = "Uploading to Radius";
+				const body = readFileSync(jsonl);
+				const url = new URL("/v1/artifacts", DEFAULT_RADIUS_GATEWAY);
+				url.searchParams.set("visibility", "organization");
+				url.searchParams.set("title", "Pi session");
+				const response = await fetch(url, {
+					method: "POST",
+					headers: {
+						Authorization: `Bearer ${token}`,
+						"Content-Type": "application/x-ndjson",
+						"Content-Length": String(body.byteLength),
+					},
+					body,
+					signal: controller.signal,
+				});
+				const json = (await response.json().catch(() => null)) as {
+					artifact?: { canonical_url: string };
+					error?: string;
+				} | null;
+				if (!response.ok || !json?.artifact) {
+					throw new Error(
+						`Failed to upload Radius artifact: ${json?.error || response.statusText || response.status}`,
+					);
+				}
+				this.notice("info", `Share URL: ${json.artifact.canonical_url}`);
+				return;
+			}
+			const auth = spawnSync("gh", ["auth", "status"], { encoding: "utf-8" });
+			if (auth.error) throw new Error("GitHub CLI (gh) is not installed. Install it from https://cli.github.com/");
+			if (auth.status !== 0) throw new Error("GitHub CLI is not logged in. Run 'gh auth login' first.");
+			const html = join(dir, "session.html");
+			await session.exportToHtml(html);
+			if (this.activity) this.activity.text = "Creating gist";
+			const gist = await new Promise<string>((resolve, reject) => {
+				const child = spawn("gh", ["gist", "create", "--public=false", html]);
+				let stdout = "";
+				let stderr = "";
+				child.stdout.on("data", (data: Buffer) => {
+					stdout += data.toString();
+				});
+				child.stderr.on("data", (data: Buffer) => {
+					stderr += data.toString();
+				});
+				controller.signal.addEventListener("abort", () => child.kill(), { once: true });
+				child.on("error", reject);
+				child.on("close", (code) =>
+					code === 0
+						? resolve(stdout.trim())
+						: reject(new Error(`Failed to create gist: ${stderr.trim() || "Unknown error"}`)),
+				);
+			});
+			const id = gist.split("/").pop();
+			if (!id) throw new Error("Failed to parse gist ID from gh output");
+			this.notice("info", `Share URL: ${getShareViewerUrl(id)}`);
+			this.notice("info", `Gist: ${gist}`);
+		} catch (error) {
+			if (controller.signal.aborted) this.flash("Share cancelled");
+			else this.notice("error", errorMessage(error));
+		} finally {
+			this.endActivity(controller);
+			rmSync(dir, { recursive: true, force: true });
+		}
+	}
+
+	/** `/bug [what went wrong]`: pi's bug report with the same consents, uploaded or written here as a zip. */
+	private async reportBug(hint: string): Promise<void> {
+		const session = this.session;
+		const cancelled = (): void => this.flash("Bug report cancelled");
+		this.notice("info", BUG_REPORT_DISCLAIMER);
+		const description = await this.ask("What went wrong? (optional)", hint);
+		if (description === undefined) return cancelled();
+		this.notice("info", BUG_REPORT_TRANSCRIPT_NOTE);
+		const transcript = await this.choose("Include the session transcript?", ["Yes, include the transcript", "No"]);
+		if (transcript === undefined) return cancelled();
+		const includeSession = transcript !== "No";
+		let includeSummary = false;
+		const model = session.model;
+		if (!includeSession) {
+			this.notice(
+				"info",
+				`The transcript is sent to ${model?.provider ?? "your provider"} with your credentials and tokens. Only the generated summary is attached; the transcript stays on your machine.`,
+			);
+			const choice = await this.choose(
+				`Attach a summary written by ${model?.name ?? "the current model"} instead?`,
+				["Yes, generate a summary", "No"],
+			);
+			if (choice === undefined) return cancelled();
+			includeSummary = choice !== "No";
+		}
+		this.notice(
+			"info",
+			`Description: ${description || "none"}. Transcript ${includeSession ? "included" : "not included"}, summary ${includeSummary ? `written by ${model?.name ?? "the model"}` : "none"}. Upload sends the report to ${new URL(getRadiusGatewayUrl()).host}; export writes a zip archive in the current directory.`,
+		);
+		const delivery = await this.choose("Bug report", ["Upload Report", "Export as Zip", "Cancel"]);
+		if (delivery === undefined || delivery === "Cancel") return cancelled();
+		const options: BugReportOptions = {
+			hint: description || undefined,
+			includeSession,
+			includeSummary,
+			delivery: delivery === "Upload Report" ? "upload" : "zip",
+		};
+		if (options.delivery === "upload" && process.env.PI_OFFLINE) {
+			this.notice("error", "Uploading bug reports requires online mode. Use Export as Zip instead.");
+			return;
+		}
+		let summary: string | undefined;
+		if (includeSummary) {
+			const controller = this.startActivity(`Writing summary with ${model?.name ?? "the model"}`);
+			try {
+				summary = await session.summarizeForBugReport({ hint: options.hint, signal: controller.signal });
+			} catch (error) {
+				if (controller.signal.aborted) cancelled();
+				else this.notice("error", `Failed to write bug report summary: ${errorMessage(error)}`);
+				return;
+			} finally {
+				this.endActivity(controller);
+			}
+		}
+		let bundle: ReturnType<typeof buildBugReport>;
+		try {
+			bundle = buildBugReport(session, options, summary);
+		} catch (error) {
+			this.notice("error", `Failed to build bug report: ${errorMessage(error)}`);
+			return;
+		}
+		if (options.delivery === "upload") {
+			const controller = this.startActivity("Uploading bug report");
+			let failure: string | undefined;
+			try {
+				const token = session.modelRuntime.getProvider(RADIUS_PROVIDER_ID)
+					? getAuthCredential(
+							await session.modelRuntime.getAuth(RADIUS_PROVIDER_ID, { minOAuthValidityMs: 5 * 60_000 }),
+						)
+					: undefined;
+				const result = await uploadBugReport(bundle, { token, signal: controller.signal });
+				recordBugReport(session, bundle, { delivery: "upload" });
+				this.notice("info", `Bug report uploaded. Report ID: ${result.id}`);
+				return;
+			} catch (error) {
+				if (controller.signal.aborted) return cancelled();
+				failure = errorMessage(error);
+			} finally {
+				this.endActivity(controller);
+			}
+			this.notice("warning", failure);
+			if (
+				(await this.choose("Upload failed: export as a zip instead?", ["Export as Zip", "Cancel"])) !==
+				"Export as Zip"
+			) {
+				return cancelled();
+			}
+		}
+		const archive = join(process.cwd(), bugReportArchiveFileName(bundle.metadata.id));
+		try {
+			await writeBugReportArchive(bundle, archive);
+		} catch (error) {
+			this.notice("error", `Failed to write bug report: ${errorMessage(error)}`);
+			return;
+		}
+		recordBugReport(session, bundle, { delivery: "zip", path: archive });
+		this.notice("info", `Bug report exported to ${archive}, report ID ${bundle.metadata.id}`);
+	}
+
 	/** One of `options` from the selector; undefined when cancelled. */
 	private choose(title: string, options: readonly string[]): Promise<string | undefined> {
 		return new Promise((resolve) => {
@@ -2161,6 +2377,7 @@ export class Vt420App {
 			this.bashRunning ||
 			this.compacting !== undefined ||
 			this.summarizing ||
+			this.activity !== undefined ||
 			this.retry !== undefined ||
 			this.flashText !== undefined ||
 			this.transcript.animated
@@ -2428,6 +2645,7 @@ export class Vt420App {
 		}
 		if (this.compacting) return `Compacting ${spinner} · ${interrupt} stop`;
 		if (this.summarizing) return `Summarizing branch ${spinner} · ${interrupt} stop`;
+		if (this.activity) return `${this.activity.text} ${spinner} · ${interrupt} stop`;
 		if (this.working) {
 			const seconds = Math.floor((now - this.workingSince) / 1000);
 			return `Working ${spinner}${seconds > 0 ? ` ${formatDuration(seconds)}` : ""} · ${interrupt} stop`;

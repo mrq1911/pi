@@ -32,7 +32,7 @@ interface BugReportContext {
 	showError: (message: string) => void;
 }
 
-interface BugReportOptions {
+export interface BugReportOptions {
 	hint?: string;
 	includeSession: boolean;
 	includeSummary: boolean;
@@ -41,9 +41,9 @@ interface BugReportOptions {
 
 type Overlay = Container & { dispose?: () => void };
 
-const DISCLAIMER =
+export const DISCLAIMER =
 	"This report goes to the Pi developers (Earendil) and is not shared publicly. It includes your pi version, operating system, the current model and provider configuration (without API keys), loaded extensions, settings, and provider error diagnostics from this session.";
-const TRANSCRIPT_NOTE =
+export const TRANSCRIPT_NOTE =
 	"The transcript contains your messages, model output, tool calls and their results, including file contents and command output read during this session.";
 
 /** Run the `/bug` flow: consent, optional summary, then upload or export. */
@@ -146,7 +146,11 @@ async function promptForOptions(
 	};
 }
 
-function buildBundle(session: AgentSession, options: BugReportOptions, summary: string | undefined): BugReportBundle {
+export function buildBundle(
+	session: AgentSession,
+	options: BugReportOptions,
+	summary: string | undefined,
+): BugReportBundle {
 	const extensions = session.resourceLoader.getExtensions();
 	return {
 		metadata: collectBugReportMetadata({
@@ -210,7 +214,7 @@ async function exportZip(context: BugReportContext, bundle: BugReportBundle): Pr
 	context.showStatus(`Bug report exported to: ${archivePath}\nReport ID: ${bundle.metadata.id}`);
 }
 
-function recordInSession(
+export function recordInSession(
 	session: AgentSession,
 	bundle: BugReportBundle,
 	delivery: Pick<BugReportSessionEntryData, "delivery" | "path">,
