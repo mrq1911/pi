@@ -2,8 +2,8 @@
  * The screen saver. A CRT left on one picture for hours keeps it in the phosphor, and a model can work that long, so
  * after a spell without keys the screen goes dark: "blank" leaves it so, "progress" shows one short line of how the
  * work goes, in another place every half minute, and "matrix" rains down what the model generates, a lone π falling
- * with how long the work has run while there is nothing to rain, and the π line once all is done. Any key brings the
- * screen back and does nothing else.
+ * while it works without writing, and the π line once all is done. Any key brings the screen back and does nothing
+ * else.
  */
 
 import type { AssistantMessage } from "@earendil-works/pi-ai";
@@ -23,8 +23,10 @@ export function isSaverMode(value: string): value is SaverMode {
 
 /** How often the rain may fall a line; the terminal's answers hold it back to the pace it can glide. */
 export const RAIN_STEP_MS = 80;
-/** How often a lone π falls a line when there is nothing to rain. */
-export const RAIN_IDLE_STEP_MS = 250;
+/** Glints racing down the streams at once, at most; each rewrites two cells a line. */
+const GLINTS_MAX = 3;
+/** Chance a line that a glint starts on a stream. */
+const GLINT_CHANCE = 0.2;
 /** Characters waiting to fall, at most; a model faster than the rain loses its oldest. */
 const RAIN_BACKLOG = 2000;
 /** Longest word one drop carries. */
@@ -51,6 +53,7 @@ export class MatrixRain {
 	private readonly columns: number;
 	private readonly random: () => number;
 	private readonly maxDrops: number;
+	private readonly maxGlints: number;
 	private readonly grid: number[][];
 	private readonly drops: Array<{ cells: number[]; bright: boolean; solo: boolean } | undefined>;
 	private readonly gaps: number[];
@@ -58,12 +61,19 @@ export class MatrixRain {
 	/** Lines fallen since the lone drop started, and its length: it is off the screen once both pass the bottom. */
 	private soloAge = Number.POSITIVE_INFINITY;
 	private soloLength = 0;
+	/** Bright cells running down their streams a row faster than the rain, so streams seem to overtake each other. */
+	private glints: Array<{ row: number; col: number }> = [];
 
-	constructor(rows: number, columns: number, options: { random?: () => number; maxDrops?: number } = {}) {
+	constructor(
+		rows: number,
+		columns: number,
+		options: { random?: () => number; maxDrops?: number; glints?: number } = {},
+	) {
 		this.rows = rows;
 		this.columns = columns;
 		this.random = options.random ?? Math.random;
 		this.maxDrops = options.maxDrops ?? Math.max(4, Math.floor(columns / 4));
+		this.maxGlints = options.glints ?? GLINTS_MAX;
 		this.grid = Array.from({ length: rows }, () => new Array<number>(columns).fill(BLANK));
 		this.drops = new Array(columns).fill(undefined);
 		this.gaps = new Array<number>(columns).fill(0);
@@ -132,6 +142,29 @@ export class MatrixRain {
 		}
 		this.grid.pop();
 		this.grid.unshift(top);
+		this.race();
+	}
+
+	/** Every glint moved down with the screen; each takes one more row down its stream, or fades at its end. */
+	private race(): void {
+		const cell = (row: number, col: number): number => this.grid[row]?.[col] ?? BLANK;
+		this.glints = this.glints.flatMap(({ row, col }) => {
+			const here = row + 1;
+			const next = here + 1;
+			if (here >= this.rows) return [];
+			const ahead = cell(next, col);
+			this.grid[here]![col] = cell(here, col) & ~ATTR_BOLD;
+			// at a gap, the bottom or a stream's own bright head, the glint is done
+			if (next >= this.rows || isSpace(ahead) || ahead & ATTR_BOLD) return [];
+			this.grid[next]![col] = ahead | ATTR_BOLD;
+			return [{ row: next, col }];
+		});
+		if (this.glints.length >= this.maxGlints || this.random() >= GLINT_CHANCE) return;
+		const col = Math.floor(this.random() * this.columns);
+		const start = cell(1, col);
+		if (isSpace(start) || start & ATTR_BOLD || this.glints.some((glint) => glint.col === col)) return;
+		this.grid[1]![col] = start | ATTR_BOLD;
+		this.glints.push({ row: 1, col });
 	}
 
 	lines(): Line[] {

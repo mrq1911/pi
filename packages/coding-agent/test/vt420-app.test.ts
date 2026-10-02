@@ -119,6 +119,8 @@ async function start(
 		cwd: harness.tempDir,
 		newSession: async () => ({ cancelled: false }),
 		switchSession: async () => ({ cancelled: false }),
+		fork: async () => ({ cancelled: false }),
+		importFromJsonl: async () => ({ cancelled: false }),
 		setRebindSession: () => {},
 	};
 	const app = new Vt420App({
@@ -359,7 +361,7 @@ describe("vt420 app", () => {
 		await app.done;
 	});
 
-	it("lets π fall with how long the work has run while a tool works and there is nothing to rain", async () => {
+	it("lets π fall alone while a tool works and there is nothing to rain", async () => {
 		const slow: AgentTool = {
 			name: "slow",
 			label: "slow",
@@ -379,10 +381,14 @@ describe("vt420 app", () => {
 			fauxAssistantMessage("ok"),
 		]);
 		void harness.session.prompt("wait");
-		await settle(1400);
-		const rows = app.emulator.screen();
-		const columns = Array.from({ length: 80 }, (_, col) => rows.map((row) => row[col] ?? " ").join(""));
-		expect(columns.some((text) => /\dsπ/.test(text))).toBe(true);
+		await settle(800);
+		const lit = (): string => app.emulator.screen().join("").replace(/\s/g, "");
+		const where = (): number => app.emulator.screen().findIndex((row) => row.includes("π"));
+		expect(lit()).toBe("π");
+		const first = where();
+		await settle(300);
+		expect(lit()).toBe("π");
+		expect(where()).not.toBe(first);
 		await app.type("x");
 		await waitForIdle(harness);
 		await app.key("ctrl+d");

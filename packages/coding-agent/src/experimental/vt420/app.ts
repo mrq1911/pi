@@ -11,6 +11,7 @@ import { basename } from "node:path";
 import type { AssistantMessage, AuthEvent, AuthPrompt } from "@earendil-works/pi-ai";
 import { fuzzyFilter } from "@earendil-works/pi-tui";
 import type { AgentSession, AgentSessionEvent } from "../../core/agent-session.ts";
+import { MissingSessionCwdError } from "../../core/session-cwd.ts";
 import { SessionManager } from "../../core/session-manager.ts";
 import { ATTR_BOLD, LINE_DOUBLE_BOTTOM, LINE_DOUBLE_TOP, LINE_SINGLE, type Line } from "./cells.ts";
 import { Charset } from "./charset.ts";
@@ -22,7 +23,6 @@ import {
 	generatedText,
 	isSaverMode,
 	MatrixRain,
-	RAIN_IDLE_STEP_MS,
 	RAIN_STEP_MS,
 	SAVER_MINUTES,
 	SAVER_MOVE_MS,
@@ -62,6 +62,13 @@ export interface Vt420Runtime {
 	readonly cwd: string;
 	newSession(): Promise<{ cancelled: boolean }>;
 	switchSession(sessionPath: string): Promise<{ cancelled: boolean }>;
+	/** A new session from entry `entryId`: before it (a user message to edit again) or at it (a clone). */
+	fork(
+		entryId: string,
+		options?: { position?: "before" | "at" },
+	): Promise<{ cancelled: boolean; selectedText?: string }>;
+	/** Replace the session with a JSONL file, run in `cwdOverride` when the directory it names is gone. */
+	importFromJsonl(inputPath: string, cwdOverride?: string): Promise<{ cancelled: boolean }>;
 	setRebindSession(rebind?: (session: AgentSession) => Promise<void>): void;
 }
 
@@ -126,16 +133,19 @@ function chunks(parts: readonly string[], max: number): string[] {
 
 export const COMMANDS: readonly CommandInfo[] = [
 	{ name: "help", description: "keys and commands" },
+	{ name: "hotkeys", description: "keys and commands, as /help" },
 	{ name: "model", args: "[name]", description: "select or switch the model" },
 	{ name: "thinking", args: "[level]", description: "set or cycle the thinking level" },
 	{ name: "new", description: "start a new session" },
 	{ name: "resume", description: "resume an earlier session" },
 	{ name: "compact", args: "[focus]", description: "summarize the context" },
 	{ name: "session", description: "tokens, speed and context" },
-	{ name: "name", args: "<name>", description: "name this session" },
+	{ name: "name", args: "[name]", description: "name this session, or show its name" },
+	{ name: "clone", description: "copy this session as it stands into a new one" },
+	{ name: "import", args: "<path.jsonl>", description: "replace the session with an exported one" },
 	{ name: "login", args: "[provider]", description: "sign in to a provider" },
 	{ name: "logout", args: "<provider>", description: "remove stored credentials" },
-	{ name: "export", args: "[path]", description: "write the session as HTML" },
+	{ name: "export", args: "[path]", description: "write the session as HTML, or JSONL for a .jsonl path" },
 	{ name: "reload", description: "reload skills, prompts and context files" },
 	{ name: "charset", description: "show every VT420 glyph" },
 	{ name: "redraw", description: "repaint the screen" },
@@ -259,7 +269,6 @@ export class Vt420App {
 	private rainTimer: ReturnType<typeof setInterval> | undefined;
 	/** How much of the streaming message has gone into the rain. */
 	private rainSeen = 0;
-	private rainStepAt = 0;
 	private lastClearAt = 0;
 	private loginController: AbortController | undefined;
 	private closed = false;
@@ -889,6 +898,7 @@ export class Vt420App {
 		const session = this.session;
 		switch (name) {
 			case "help":
+			case "hotkeys":
 				this.showHelp();
 				return true;
 			case "model":
@@ -912,12 +922,28 @@ export class Vt420App {
 				this.showStats();
 				return true;
 			case "name":
-				if (!args) this.notice("warning", "Usage: /name <name>");
-				else {
+				if (args) {
 					session.setSessionName(args);
-					this.flash(`Session named ${args}`);
+					this.flash(`Session named ${session.sessionName ?? args}`);
+				} else if (session.sessionName) this.notice("info", `Session name: ${session.sessionName}`);
+				else this.notice("warning", "Usage: /name <name>");
+				return true;
+			case "import":
+				void this.importSession(args.replace(/^(["'])(.*)\1$/, "$2"));
+				return true;
+			case "clone": {
+				const leaf = session.sessionManager.getLeafId();
+				if (!leaf) this.flash("Nothing to clone yet");
+				else {
+					this.runtime
+						.fork(leaf, { position: "at" })
+						.then((result) => {
+							if (!result.cancelled) this.flash("Cloned to a new session");
+						})
+						.catch((error: unknown) => this.notice("error", errorMessage(error)));
 				}
 				return true;
+			}
 			case "login":
 				this.showLogin(args);
 				return true;
@@ -925,10 +951,18 @@ export class Vt420App {
 				void this.logout(args);
 				return true;
 			case "export":
-				session
-					.exportToHtml(args || undefined)
-					.then((path) => this.notice("info", `Exported to ${path}`))
-					.catch((error: unknown) => this.notice("error", errorMessage(error)));
+				if (args.endsWith(".jsonl")) {
+					try {
+						this.notice("info", `Exported to ${session.exportToJsonl(args)}`);
+					} catch (error) {
+						this.notice("error", errorMessage(error));
+					}
+				} else {
+					session
+						.exportToHtml(args || undefined)
+						.then((path) => this.notice("info", `Exported to ${path}`))
+						.catch((error: unknown) => this.notice("error", errorMessage(error)));
+				}
 				return true;
 			case "reload":
 				session
@@ -1276,19 +1310,77 @@ export class Vt420App {
 		items: SelectorItem[],
 		onSelect: (item: SelectorItem) => void,
 		onCancel?: () => void,
+		selected = 0,
 	): void {
 		this.mode = {
 			kind: "selector",
 			title,
 			items,
 			filtered: items,
-			selected: 0,
+			selected: Math.max(0, Math.min(items.length - 1, selected)),
 			top: 0,
 			filter: new LineEditor(),
 			onSelect,
 			onCancel,
 		};
 		this.requestRender();
+	}
+
+	/** `/import <path>`: replace the session with a JSONL file, asking for a directory when the one it names is gone. */
+	private async importSession(path: string): Promise<void> {
+		if (!path) {
+			this.notice("warning", "Usage: /import <path.jsonl>");
+			return;
+		}
+		if (!(await this.confirm(`Replace the current session with ${path}?`))) {
+			this.flash("Import cancelled");
+			return;
+		}
+		const load = async (cwd?: string): Promise<void> => {
+			const result = await this.runtime.importFromJsonl(path, cwd);
+			this.flash(result.cancelled ? "Import cancelled" : `Session imported from ${path}`);
+		};
+		try {
+			await load();
+		} catch (error) {
+			if (!(error instanceof MissingSessionCwdError)) {
+				this.notice("error", `Failed to import session: ${errorMessage(error)}`);
+				return;
+			}
+			const cwd = await this.ask(`${error.message} Directory to work in instead:`);
+			if (!cwd) {
+				this.flash("Import cancelled");
+				return;
+			}
+			await load(cwd).catch((retry: unknown) =>
+				this.notice("error", `Failed to import session: ${errorMessage(retry)}`),
+			);
+		}
+	}
+
+	/** Yes or no, from the selector; cancelling is no. */
+	private confirm(title: string): Promise<boolean> {
+		return new Promise((resolve) => {
+			this.openSelector(
+				title,
+				[
+					{ value: "yes", label: "Yes" },
+					{ value: "no", label: "No" },
+				],
+				(item) => resolve(item.value === "yes"),
+				() => resolve(false),
+			);
+		});
+	}
+
+	/** A line of text from the prompt; undefined when cancelled. */
+	private ask(message: string, initial = ""): Promise<string | undefined> {
+		return new Promise((resolve) => {
+			const editor = new LineEditor();
+			if (initial) editor.setText(initial);
+			this.mode = { kind: "prompt", message, editor, resolve, reject: () => resolve(undefined) };
+			this.requestRender();
+		});
 	}
 
 	private refilter(mode: Extract<Mode, { kind: "selector" }>): void {
@@ -1494,7 +1586,7 @@ export class Vt420App {
 
 	private compose(): Frame {
 		const { rows, columns, statusLine } = this.io.caps;
-		if (this.saving === "matrix" && this.rain && (this.rain.active || this.saverCounter())) {
+		if (this.saving === "matrix" && this.rain && (this.rain.active || this.saverBusy())) {
 			const status = statusLine ? [] : undefined;
 			return { lines: this.rain.lines(), status, scroll: { top: 0, bottom: rows - 1 }, smooth: true };
 		}
@@ -1587,28 +1679,27 @@ export class Vt420App {
 
 	/**
 	 * The rain falls a line while the terminal still glides the last, so one scroll follows another without a pause.
-	 * Working with no words to rain, a lone π falls with the counter, slower; once all is done the rain drains off
-	 * and the π line comes back.
+	 * Working without writing, a lone π falls; once all is done the rain drains off and the π line comes back.
 	 */
 	private rainTick(): void {
 		const rain = this.rain;
 		if (!rain || this.outbox.length > 0 || this.unanswered.length >= SYNC_WINDOW) return;
-		const counter = this.saverCounter();
-		if (!rain.raining && !counter && !rain.active) return;
-		if (!rain.raining && counter && Date.now() - this.rainStepAt < RAIN_IDLE_STEP_MS) return;
-		rain.step(counter ? this.charset.cells(`${counter}π`) : undefined);
-		this.rainStepAt = Date.now();
-		if (!rain.active && !counter) this.moveSaver();
+		const busy = this.saverBusy();
+		if (!rain.raining && !busy && !rain.active) return;
+		rain.step(busy ? this.charset.cells("π") : undefined);
+		if (!rain.active && !busy) this.moveSaver();
 		this.requestRender();
 	}
 
-	/** What follows the falling π: how long the work has run, or what it waits for; nothing once all is done. */
-	private saverCounter(): string {
-		if (this.mode.kind === "prompt" || this.mode.kind === "selector") return "waiting";
-		if (this.retry) return `retry${formatDuration(Math.max(0, this.retry.until - Date.now()) / 1000)}`;
-		if (this.compacting) return "compacting";
-		if (this.working) return formatDuration((Date.now() - this.workingSince) / 1000).replace(/ /g, "");
-		return "";
+	/** Work goes on, or waits for an answer, without anything to rain. */
+	private saverBusy(): boolean {
+		return (
+			this.mode.kind === "prompt" ||
+			this.mode.kind === "selector" ||
+			this.retry !== undefined ||
+			this.compacting !== undefined ||
+			this.working
+		);
 	}
 
 	private streamingMessage(): AssistantMessage | undefined {

@@ -74,11 +74,11 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
   (`π Working 1h 05m · 41.2 tok/s`, `π Waiting for you`, and just `π` once the work is done) in another place every
   half minute; `matrix` rains down the words the model generates, the whole screen moving down a line at a time with
   the terminal's smooth scroll and each word entering its column last letter first, bright, so it reads top to bottom
-  as it falls, a lone π falling with how long the work has run while a tool works and there is nothing to rain, and
-  the π line once all is done; `blank` shows nothing; `off` is the default on emulators. Any key wakes the screen and
-  does nothing else. `/screensaver matrix` keeps the mode and starts it at once, as plain `/screensaver` and
-  `/screensaver 0` do; `/screensaver blank 5` keeps the mode and minutes in `vt420.json` (`"screensaver"`,
-  `"screensaverMinutes"`) for next time.
+  as it falls, with bright glints racing down some streams so they seem to overtake the rest, a lone π falling while
+  the model works without writing, and the π line once all is done; `blank` shows nothing; `off` is the default on
+  emulators. Any key wakes the screen and does nothing else. `/screensaver matrix` keeps the mode and starts it at
+  once, as plain `/screensaver` and `/screensaver 0` do; `/screensaver blank 5` keeps the mode and minutes in
+  `vt420.json` (`"screensaver"`, `"screensaverMinutes"`) for next time.
 - **Probing and restore**: DA1/DA2, DECRQSS, DECRQM, DECRQUPSS, DECRQDE and CPR decide what to use; the modes, status
   line type and designations found at startup are restored on exit.
 - **Emulators**: a terminal that decodes UTF-8 (found by printing é as two bytes and reading the cursor back) gets the

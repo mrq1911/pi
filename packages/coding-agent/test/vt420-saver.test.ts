@@ -15,7 +15,7 @@ function column(rain: MatrixRain, col: number): string {
 
 describe("vt420 screen saver", () => {
 	it("rains words down a column, last letter first and bright, so they read top to bottom", () => {
-		const rain = new MatrixRain(8, 4, { random: () => 0 });
+		const rain = new MatrixRain(8, 4, { random: () => 0, glints: 0 });
 		rain.feed(charset.cells("render  frames fast"));
 		expect(rain.active).toBe(true);
 		for (let step = 0; step < 6; step++) rain.step();
@@ -39,7 +39,7 @@ describe("vt420 screen saver", () => {
 	});
 
 	it("lets a lone drop fall when there are no words, one at a time", () => {
-		const rain = new MatrixRain(6, 3, { random: () => 0 });
+		const rain = new MatrixRain(6, 3, { random: () => 0, glints: 0 });
 		const solo = charset.cells("12sπ");
 		for (let step = 0; step < 4; step++) rain.step(solo);
 		expect(rain.raining).toBe(false);
@@ -50,6 +50,20 @@ describe("vt420 screen saver", () => {
 		// the next one waits until this one has fallen off the screen
 		for (let step = 0; step < 6; step++) rain.step(solo);
 		expect(rain.lines().filter((line) => line.cells[0] !== 0x20).length).toBeLessThanOrEqual(1);
+	});
+
+	it("runs bright glints down the streams a row faster than the rain, so streams seem to overtake", () => {
+		const rain = new MatrixRain(12, 2, { random: () => 0 });
+		rain.feed(charset.cells("abcdefghijkl"));
+		const bright = (): number[] => rain.lines().flatMap((line, row) => (line.cells[0]! & ATTR_BOLD ? [row] : []));
+		for (let step = 0; step < 4; step++) rain.step();
+		// the drop's own bright head at the bottom of what has entered, and a glint running ahead of the rain above it
+		const before = bright();
+		rain.step();
+		const after = bright();
+		expect(after.length).toBeGreaterThan(1);
+		const glintBefore = Math.min(...before);
+		expect(after).toContain(glintBefore + 2);
 	});
 
 	it("keeps a line inside the screen wherever it is put", () => {
