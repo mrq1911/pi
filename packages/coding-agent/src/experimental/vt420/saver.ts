@@ -63,6 +63,8 @@ export class MatrixRain {
 	private soloLength = 0;
 	/** Bright cells running down their streams a row faster than the rain, so streams seem to overtake each other. */
 	private glints: Array<{ row: number; col: number }> = [];
+	/** Lines fallen since the screen was last drawn. */
+	private fallen = 0;
 
 	constructor(
 		rows: number,
@@ -142,7 +144,15 @@ export class MatrixRain {
 		}
 		this.grid.pop();
 		this.grid.unshift(top);
+		this.fallen++;
 		this.race();
+	}
+
+	/** Lines fallen since the last call, for the renderer to scroll in hardware. */
+	takeFallen(): number {
+		const fallen = this.fallen;
+		this.fallen = 0;
+		return fallen;
 	}
 
 	/** Every glint moved down with the screen; each takes one more row down its stream, or fades at its end. */

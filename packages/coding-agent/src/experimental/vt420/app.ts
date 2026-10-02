@@ -11,13 +11,17 @@ import { basename } from "node:path";
 import type { AssistantMessage, AuthEvent, AuthPrompt } from "@earendil-works/pi-ai";
 import { fuzzyFilter } from "@earendil-works/pi-tui";
 import type { AgentSession, AgentSessionEvent } from "../../core/agent-session.ts";
-import { MissingSessionCwdError } from "../../core/session-cwd.ts";
+import { formatMissingSessionCwdPrompt, MissingSessionCwdError } from "../../core/session-cwd.ts";
 import { SessionManager } from "../../core/session-manager.ts";
+import { getProjectTrustOptions, ProjectTrustStore } from "../../core/trust-manager.ts";
+import { getChangelogPath, normalizeChangelogLinks, parseChangelog } from "../../utils/changelog.ts";
+import { copyToClipboard } from "../../utils/clipboard.ts";
 import { ATTR_BOLD, LINE_DOUBLE_BOTTOM, LINE_DOUBLE_TOP, LINE_SINGLE, type Line } from "./cells.ts";
 import { Charset } from "./charset.ts";
 import { LineEditor } from "./editor.ts";
 import type { InputEvent, TerminalResponse } from "./input.ts";
 import type { Keymap, Vt420Action } from "./keys.ts";
+import { renderMarkdown } from "./markdown.ts";
 import { type Frame, type Renderer, rendererFor } from "./renderer.ts";
 import {
 	generatedText,
@@ -61,7 +65,8 @@ export interface Vt420Runtime {
 	readonly session: AgentSession;
 	readonly cwd: string;
 	newSession(): Promise<{ cancelled: boolean }>;
-	switchSession(sessionPath: string): Promise<{ cancelled: boolean }>;
+	switchSession(sessionPath: string, options?: { cwdOverride?: string }): Promise<{ cancelled: boolean }>;
+	readonly services: { readonly agentDir: string };
 	/** A new session from entry `entryId`: before it (a user message to edit again) or at it (a clone). */
 	fork(
 		entryId: string,
@@ -144,7 +149,10 @@ export const COMMANDS: readonly CommandInfo[] = [
 	{ name: "clone", description: "copy this session as it stands into a new one" },
 	{ name: "import", args: "<path.jsonl>", description: "replace the session with an exported one" },
 	{ name: "login", args: "[provider]", description: "sign in to a provider" },
-	{ name: "logout", args: "<provider>", description: "remove stored credentials" },
+	{ name: "logout", args: "[provider]", description: "remove stored credentials" },
+	{ name: "trust", description: "save whether this project's resources may load" },
+	{ name: "copy", description: "copy the last answer to the clipboard" },
+	{ name: "changelog", description: "what is new in pi" },
 	{ name: "export", args: "[path]", description: "write the session as HTML, or JSONL for a .jsonl path" },
 	{ name: "reload", description: "reload skills, prompts and context files" },
 	{ name: "charset", description: "show every VT420 glyph" },
@@ -173,6 +181,8 @@ type Mode =
 			editor: LineEditor;
 			resolve(value: string): void;
 			reject(error: Error): void;
+			/** A sign-in's prompt: cancelling it ends the sign-in too. */
+			auth?: boolean;
 	  };
 
 const EDITOR_ACTIONS: readonly Vt420Action[] = [
@@ -201,6 +211,17 @@ interface FooterStats {
 	cacheRead: number;
 	contextTokens: number | null;
 	contextWindow: number;
+}
+
+/** A path argument as pi reads it: in quotes up to the matching one, otherwise up to the first space. */
+function pathArgument(args: string): string | undefined {
+	const text = args.trimStart();
+	const quote = text[0];
+	if (quote === '"' || quote === "'") {
+		const end = text.indexOf(quote, 1);
+		return end > 0 ? text.slice(1, end) : undefined;
+	}
+	return text.split(/\s/)[0] || undefined;
 }
 
 function errorMessage(error: unknown): string {
@@ -851,7 +872,10 @@ export class Vt420App {
 		const busy = this.working || this.bashRunning || session.isCompacting || session.isRetrying;
 		if (this.bashRunning) session.abortBash();
 		if (session.isRetrying) session.abortRetry();
-		if (session.isCompacting) session.abortCompaction();
+		if (session.isCompacting) {
+			session.abortCompaction();
+			session.abortBranchSummary();
+		}
 		if (session.isStreaming) void session.abort();
 		if (!busy) this.follow = true;
 	}
@@ -924,12 +948,14 @@ export class Vt420App {
 			case "name":
 				if (args) {
 					session.setSessionName(args);
-					this.flash(`Session named ${session.sessionName ?? args}`);
+					const named = session.sessionName ?? args;
+					if (named !== args) this.notice("warning", `Session name was normalized from "${args}" to "${named}"`);
+					this.flash(`Session named ${named}`);
 				} else if (session.sessionName) this.notice("info", `Session name: ${session.sessionName}`);
 				else this.notice("warning", "Usage: /name <name>");
 				return true;
 			case "import":
-				void this.importSession(args.replace(/^(["'])(.*)\1$/, "$2"));
+				void this.importSession(args);
 				return true;
 			case "clone": {
 				const leaf = session.sessionManager.getLeafId();
@@ -948,7 +974,17 @@ export class Vt420App {
 				this.showLogin(args);
 				return true;
 			case "logout":
-				void this.logout(args);
+				if (args) void this.logout(args);
+				else void this.showLogout();
+				return true;
+			case "trust":
+				this.showTrust();
+				return true;
+			case "copy":
+				void this.copyLastAnswer();
+				return true;
+			case "changelog":
+				this.showChangelog();
 				return true;
 			case "export":
 				if (args.endsWith(".jsonl")) {
@@ -1114,7 +1150,14 @@ export class Vt420App {
 				return;
 			}
 			this.openSelector("Resume session", items, (item) => {
-				this.runtime.switchSession(item.value).catch((error: unknown) => this.notice("error", errorMessage(error)));
+				this.runtime.switchSession(item.value).catch(async (error: unknown) => {
+					const cwd = error instanceof MissingSessionCwdError ? await this.continueHere(error) : undefined;
+					if (cwd) {
+						await this.runtime
+							.switchSession(item.value, { cwdOverride: cwd })
+							.catch((retry: unknown) => this.notice("error", errorMessage(retry)));
+					} else if (!(error instanceof MissingSessionCwdError)) this.notice("error", errorMessage(error));
+				});
 			});
 		} catch (error) {
 			this.notice("error", errorMessage(error));
@@ -1253,7 +1296,7 @@ export class Vt420App {
 			}
 			const editor = new LineEditor();
 			editor.secret = prompt.type === "secret";
-			this.mode = { kind: "prompt", message: prompt.message, editor, resolve, reject };
+			this.mode = { kind: "prompt", message: prompt.message, editor, resolve, reject, auth: true };
 			this.requestRender();
 		});
 	}
@@ -1326,8 +1369,9 @@ export class Vt420App {
 		this.requestRender();
 	}
 
-	/** `/import <path>`: replace the session with a JSONL file, asking for a directory when the one it names is gone. */
-	private async importSession(path: string): Promise<void> {
+	/** `/import <path>`: replace the session with a JSONL file, offering the current directory when its own is gone. */
+	private async importSession(args: string): Promise<void> {
+		const path = pathArgument(args);
 		if (!path) {
 			this.notice("warning", "Usage: /import <path.jsonl>");
 			return;
@@ -1343,19 +1387,145 @@ export class Vt420App {
 		try {
 			await load();
 		} catch (error) {
-			if (!(error instanceof MissingSessionCwdError)) {
-				this.notice("error", `Failed to import session: ${errorMessage(error)}`);
-				return;
-			}
-			const cwd = await this.ask(`${error.message} Directory to work in instead:`);
-			if (!cwd) {
-				this.flash("Import cancelled");
-				return;
-			}
-			await load(cwd).catch((retry: unknown) =>
-				this.notice("error", `Failed to import session: ${errorMessage(retry)}`),
-			);
+			const cwd = error instanceof MissingSessionCwdError ? await this.continueHere(error) : undefined;
+			if (error instanceof MissingSessionCwdError && !cwd) this.flash("Import cancelled");
+			else if (cwd)
+				await load(cwd).catch((retry: unknown) =>
+					this.notice("error", `Failed to import session: ${errorMessage(retry)}`),
+				);
+			else this.notice("error", `Failed to import session: ${errorMessage(error)}`);
 		}
+	}
+
+	/** A session whose directory is gone can go on in the current one; undefined when declined. */
+	private async continueHere(error: MissingSessionCwdError): Promise<string | undefined> {
+		this.notice("warning", formatMissingSessionCwdPrompt(error.issue));
+		return (await this.confirm("Continue in the current directory?")) ? error.issue.fallbackCwd : undefined;
+	}
+
+	/** `/changelog`: pi's release notes in the pager, newest first. */
+	private showChangelog(): void {
+		const entries = parseChangelog(getChangelogPath());
+		const text = entries.map((entry) => normalizeChangelogLinks(entry.content, entry)).join("\n\n");
+		const width = this.io.caps.columns;
+		this.mode = {
+			kind: "help",
+			lines: [
+				{ cells: this.charset.cells("What's New", ATTR_BOLD), attr: LINE_SINGLE },
+				{ cells: [], attr: LINE_SINGLE },
+				...renderMarkdown(text || "No changelog entries found.", {
+					width,
+					charset: this.charset,
+					largeHeadings: this.io.caps.doubleSize !== false,
+				}),
+			],
+			top: 0,
+		};
+	}
+
+	/**
+	 * `/copy`: the last answer to an emulator's clipboard with OSC 52, written through the terminal since stray output
+	 * is kept off the screen, or to the desktop's when there is one. A VT420 has no clipboard.
+	 */
+	private async copyLastAnswer(): Promise<void> {
+		const text = this.session.getLastAssistantText();
+		if (!text) {
+			this.notice("warning", "No agent messages to copy yet");
+			return;
+		}
+		if (this.io.caps.unicode && !process.env.VT420_TERM) {
+			const encoded = Buffer.from(text, "utf8").toString("base64");
+			if (encoded.length > 100_000) {
+				this.notice("error", "Clipboard unavailable: the text exceeds the OSC 52 size limit");
+				return;
+			}
+			this.io.write(`\x1b]52;c;${encoded}\x1b\\`);
+			this.flash("Copied the last answer to the clipboard");
+			return;
+		}
+		if (!process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
+			this.notice("warning", "This terminal has no clipboard; /export writes the session to a file");
+			return;
+		}
+		try {
+			await copyToClipboard(text);
+			this.flash("Copied the last answer to the desktop clipboard");
+		} catch (error) {
+			this.notice("error", errorMessage(error));
+		}
+	}
+
+	/** `/logout` without a provider: pick one of those with credentials saved by /login. */
+	private async showLogout(): Promise<void> {
+		const models = this.session.modelRuntime;
+		let credentials: ReadonlyArray<{ providerId: string; type: string }>;
+		try {
+			credentials = await models.listCredentials({ signal: AbortSignal.timeout(15_000) });
+		} catch (error) {
+			this.notice("error", `Could not read stored credentials: ${errorMessage(error)}`);
+			return;
+		}
+		if (credentials.length === 0) {
+			this.notice(
+				"info",
+				"No stored credentials to remove. /logout only removes credentials saved by /login; environment variables and models.json are unchanged.",
+			);
+			return;
+		}
+		const kinds = new Set(credentials.map((credential) => credential.type)).size > 1;
+		const items = credentials
+			.map(({ providerId, type }) => ({
+				value: providerId,
+				label: models.getProvider(providerId)?.name ?? providerId,
+				detail: kinds ? (type === "oauth" ? "subscription" : "API key") : undefined,
+			}))
+			.sort((left, right) => left.label.localeCompare(right.label));
+		this.openSelector("Log out of", items, (item) => void this.logout(item.value));
+	}
+
+	/** `/trust`: save whether this project's own extensions and settings may load, for the next start. */
+	private showTrust(): void {
+		const cwd = this.session.sessionManager.getCwd();
+		let store: ProjectTrustStore;
+		let saved: { path: string; decision: boolean } | null;
+		try {
+			store = new ProjectTrustStore(this.runtime.services.agentDir);
+			saved = store.getEntry(cwd);
+		} catch (error) {
+			this.notice("error", errorMessage(error));
+			return;
+		}
+		const options = getProjectTrustOptions(cwd);
+		const here = options[0]?.savedPath;
+		const decision = saved ? (saved.decision ? "trusted" : "untrusted") : "none";
+		const where = saved ? (saved.path === here ? ` (${saved.path})` : ` (inherited from ${saved.path})`) : "";
+		const current = this.session.settingsManager.isProjectTrusted() ? "trusted" : "untrusted";
+		this.notice("info", `Project trust for ${cwd}: saved decision ${decision}${where}; this session ${current}`);
+		const savedIndex = options.findIndex(
+			(option) => saved !== null && option.savedPath === saved.path && option.trusted === saved.decision,
+		);
+		this.openSelector(
+			"Project trust",
+			options.map((option, index) => ({
+				value: String(index),
+				label: option.label,
+				detail: index === savedIndex ? "saved" : undefined,
+			})),
+			(item) => {
+				const option = options[Number(item.value)]!;
+				try {
+					store.setMany(option.updates);
+					this.notice(
+						"info",
+						`Saved trust decision: ${option.trusted ? "trusted" : "untrusted"}. Restart pi for it to take effect.`,
+					);
+				} catch (error) {
+					this.notice("error", errorMessage(error));
+				}
+			},
+			undefined,
+			Math.max(0, savedIndex),
+		);
 	}
 
 	/** Yes or no, from the selector; cancelling is no. */
@@ -1370,16 +1540,6 @@ export class Vt420App {
 				(item) => resolve(item.value === "yes"),
 				() => resolve(false),
 			);
-		});
-	}
-
-	/** A line of text from the prompt; undefined when cancelled. */
-	private ask(message: string, initial = ""): Promise<string | undefined> {
-		return new Promise((resolve) => {
-			const editor = new LineEditor();
-			if (initial) editor.setText(initial);
-			this.mode = { kind: "prompt", message, editor, resolve, reject: () => resolve(undefined) };
-			this.requestRender();
 		});
 	}
 
@@ -1421,8 +1581,8 @@ export class Vt420App {
 		const keys = this.keymap;
 		if (keys.matches(key, "select.cancel") || keys.matches(key, "app.interrupt")) {
 			this.mode = { kind: "normal" };
-			this.loginController?.abort();
-			mode.reject(new Error("Sign-in cancelled"));
+			if (mode.auth) this.loginController?.abort();
+			mode.reject(new Error(mode.auth ? "Sign-in cancelled" : "Cancelled"));
 			return;
 		}
 		if (keys.matches(key, "editor.submit") || keys.matches(key, "select.confirm")) {
@@ -1588,7 +1748,8 @@ export class Vt420App {
 		const { rows, columns, statusLine } = this.io.caps;
 		if (this.saving === "matrix" && this.rain && (this.rain.active || this.saverBusy())) {
 			const status = statusLine ? [] : undefined;
-			return { lines: this.rain.lines(), status, scroll: { top: 0, bottom: rows - 1 }, smooth: true };
+			const shift = this.rain.takeFallen();
+			return { lines: this.rain.lines(), status, scroll: { top: 0, bottom: rows - 1 }, smooth: true, shift };
 		}
 		if (this.saving) return saverFrame(rows, columns, this.saverLine(), this.saverPlace, statusLine);
 		const input = this.inputLayout(columns);

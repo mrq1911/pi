@@ -121,6 +121,7 @@ async function start(
 		switchSession: async () => ({ cancelled: false }),
 		fork: async () => ({ cancelled: false }),
 		importFromJsonl: async () => ({ cancelled: false }),
+		services: { agentDir: harness.tempDir },
 		setRebindSession: () => {},
 	};
 	const app = new Vt420App({
@@ -386,9 +387,12 @@ describe("vt420 app", () => {
 		const where = (): number => app.emulator.screen().findIndex((row) => row.includes("π"));
 		expect(lit()).toBe("π");
 		const first = where();
+		const before = app.output.length;
 		await settle(300);
 		expect(lit()).toBe("π");
 		expect(where()).not.toBe(first);
+		// it glides down with the screen rather than being written a line further each time
+		expect(app.output.slice(before).join("")).toContain("\x1b[?4h");
 		await app.type("x");
 		await waitForIdle(harness);
 		await app.key("ctrl+d");

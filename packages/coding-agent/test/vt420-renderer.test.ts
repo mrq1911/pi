@@ -284,6 +284,17 @@ describe("vt420 renderer", () => {
 		expect(rolled).not.toContain("?4h");
 	});
 
+	it("scrolls a frame that says it moved in hardware, gliding, however little is on it", () => {
+		const s = setup();
+		const region = { top: 0, bottom: ROWS - 1 };
+		s.draw(frameOf(s.charset, ["", "", "π"], { scroll: region }));
+		const next = frameOf(s.charset, ["", "", "", "π"], { scroll: region, smooth: true, shift: 1 });
+		const bytes = s.draw(next);
+		expect(bytes).toMatch(/\x1b\[\?4h(\x1b\[H)?\x1bM\x1b\[\?4l/);
+		expect(bytes).not.toContain("π");
+		expectScreen(s, next);
+	});
+
 	it("jumps over a page on a terminal set to smooth scroll, and glides a line or two", () => {
 		const lines = Array.from({ length: 30 }, (_, index) => `transcript line ${index} with some text`);
 		const region = { top: 0, bottom: 8 };

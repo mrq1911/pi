@@ -68,6 +68,11 @@ export interface Frame {
 	scroll: { top: number; bottom: number };
 	/** A hardware scroll of a line or two glides (DECSCLM), even on a terminal set to jump scroll. */
 	smooth?: boolean;
+	/**
+	 * The whole region moved down this many lines since the last frame: scrolled in hardware whatever it saves, for
+	 * motion that has to glide even over a screen too empty to be worth scrolling.
+	 */
+	shift?: number;
 }
 
 /** A renderer for what the terminal reported. */
@@ -252,6 +257,10 @@ export class Renderer {
 	private hardwareScroll(frame: Frame): void {
 		const { top, bottom } = frame.scroll;
 		const height = bottom - top + 1;
+		if (frame.shift) {
+			this.scrollBy(frame, -Math.min(frame.shift, height));
+			return;
+		}
 		if (height < 3) return;
 		const want: string[] = [];
 		const have: string[] = [];
@@ -289,6 +298,12 @@ export class Renderer {
 		}
 		// Each scrolled line costs two bytes plus a cursor move; only scroll when it clearly saves output.
 		if (best === 0 || bestScore - baseline <= Math.abs(best) * 2 + 8) return;
+		this.scrollBy(frame, best);
+	}
+
+	/** Scroll the frame's region up (`best` > 0) or down, keeping the model of the screen in step. */
+	private scrollBy(frame: Frame, best: number): void {
+		const { top, bottom } = frame.scroll;
 		// while a smooth-scrolling terminal glides through a page, what follows piles up and overflows its buffer
 		const jump = this.options.smoothScroll === true && Math.abs(best) > SMOOTH_SCROLL_MAX;
 		const glide = frame.smooth === true && this.options.smoothScroll !== true && Math.abs(best) <= SMOOTH_SCROLL_MAX;

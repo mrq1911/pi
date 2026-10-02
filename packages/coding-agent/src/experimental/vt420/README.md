@@ -120,9 +120,11 @@ the LK401's F14 to F20, Help and Do on, count as those keys. Every binding can b
 
 ## Commands
 
-`/help`, `/model [name]`, `/thinking [level]`, `/new`, `/resume`, `/compact [focus]`, `/session`, `/name <name>`,
-`/login [provider]`, `/logout <provider>`, `/export [path]`, `/reload`, `/charset`, `/redraw`,
-`/screensaver [off|blank|progress] [minutes]`, `/quit`.
+`/help` (or `/hotkeys`), `/model [name]`, `/thinking [level]`, `/new`, `/resume`, `/clone`, `/import <file.jsonl>`,
+`/compact [focus]`, `/session`, `/name [name]`, `/login [provider]`, `/logout [provider]`, `/trust`, `/copy`,
+`/export [path]` (HTML, or JSONL for a `.jsonl` path), `/changelog`, `/reload`, `/charset`, `/redraw`,
+`/screensaver [off|blank|progress|matrix] [minutes]`, `/quit`. `/copy` uses OSC 52 on an emulator and the desktop
+clipboard on a host that has one; a VT420 has neither.
 Prompt templates and `/skill:name` work as in pi. `!cmd` runs a shell command; `!!cmd` keeps its output out of the context.
 
 `/login` prints the sign-in address or device code (the code in double-height letters) for another device and
