@@ -136,7 +136,8 @@ separator row, where interrupt cancels it.
 Extension commands work as in pi, pi's own and yours (`--no-extensions` leaves yours out): they get the frontend's
 lists, yes-or-no questions, one-line prompts, notices and the separator row for their status, and appear in Tab
 completion, the command menu and help, with skills as `/skill:name`. What needs pi's TUI components (widgets, custom
-components) does nothing, as in RPC mode.
+components) does nothing, as in RPC mode. `/llama` manages a llama.cpp router the same way, as a series of lists and
+prompts with its progress on the separator row.
 Prompt templates and `/skill:name` work as in pi. `!cmd` runs a shell command; `!!cmd` keeps its output out of the context.
 
 `/login` prints the sign-in address or device code (the code in double-height letters) for another device and

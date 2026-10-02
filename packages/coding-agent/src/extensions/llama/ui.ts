@@ -24,7 +24,7 @@ const DOWNLOAD_VALUE = "\0download";
 
 export type LlamaManagerAction = { type: "model"; model: LlamaModelInfo } | { type: "download" } | { type: "close" };
 
-interface ProgressState extends LlamaProgress {
+export interface ProgressState extends LlamaProgress {
 	title: string;
 	model: string;
 }
@@ -41,7 +41,7 @@ function contextLabel(model: LlamaModelInfo): string | undefined {
 	return undefined;
 }
 
-function modelDescription(model: LlamaModelInfo): string {
+export function modelDescription(model: LlamaModelInfo): string {
 	const details: string[] = [];
 	const loaded = model.status.value === "loaded" || model.status.value === "sleeping";
 	if (loaded) details.push("loaded");

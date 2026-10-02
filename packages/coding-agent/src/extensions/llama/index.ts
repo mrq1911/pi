@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "../../core/extensions/types.ts";
 import { formatBytes, LlamaClient, type LlamaModelInfo, normalizeLlamaServerUrl } from "./client.ts";
+import { showLlamaDialogs } from "./dialogs.ts";
 import { findHuggingFaceToken, HuggingFaceClient } from "./huggingface.ts";
 import { createLlamaProvider, LLAMA_PROVIDER_ID } from "./provider.ts";
 import { type LlamaUi, runWithProgress, showLlamaUi } from "./ui.ts";
@@ -183,13 +184,14 @@ export default function llamaExtension(pi: ExtensionAPI): void {
 	pi.registerCommand("llama", {
 		description: "Manage llama.cpp router models",
 		handler: async (_args, ctx) => {
-			if (ctx.mode !== "tui") {
+			// frontends with dialogs but not pi's TUI components get /llama as a sequence of dialogs
+			if (ctx.mode !== "tui" && !ctx.hasUI) {
 				ctx.ui.notify("/llama is available in interactive mode", "warning");
 				return;
 			}
 			const client = await configuredClient(ctx);
 			if (!client) return;
-			await showLlamaUi(ctx, async (ui) => {
+			await (ctx.mode === "tui" ? showLlamaUi : showLlamaDialogs)(ctx, async (ui) => {
 				const readCatalog = async (): Promise<LlamaModelInfo[] | undefined> => {
 					while (true) {
 						try {
