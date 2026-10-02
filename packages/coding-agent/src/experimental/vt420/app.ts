@@ -222,7 +222,6 @@ export class Vt420App {
 	/** The screen saver showing, and which; the next key only wakes the screen. */
 	private saving: SaverMode | undefined;
 	private saverPlace = { row: 0, col: 0 };
-	private workedUntil = 0;
 	private lastClearAt = 0;
 	private loginController: AbortController | undefined;
 	private closed = false;
@@ -437,7 +436,6 @@ export class Vt420App {
 				break;
 			case "agent_end":
 				this.working = false;
-				this.workedUntil = Date.now();
 				if (this.streaming && this.streaming.render(this.context(this.io.caps.columns)).length === 0) {
 					this.transcript.remove(this.streaming);
 				}
@@ -1503,11 +1501,11 @@ export class Vt420App {
 		this.requestRender();
 	}
 
-	/** The progress saver's line: how long the work has run, or how long ago it ended. */
+	/** The progress saver's line: how the work goes while it runs, and only π once it is done. */
 	private saverLine(): number[] | undefined {
 		if (this.saving !== "progress") return undefined;
 		const now = Date.now();
-		let text: string;
+		let text = "";
 		if (this.mode.kind === "prompt" || this.mode.kind === "selector") text = "Waiting for you";
 		else if (this.retry) text = `Retrying in ${formatDuration(Math.max(0, this.retry.until - now) / 1000)}`;
 		else if (this.compacting) text = "Compacting";
@@ -1516,9 +1514,8 @@ export class Vt420App {
 			const approximate = speed?.approximate ? this.charset.pick("≃", "~") : "";
 			const rate = speed ? ` · ${approximate}${formatRate(speed.rate)} tok/s` : "";
 			text = `Working ${formatDuration((now - this.workingSince) / 1000)}${rate}`;
-		} else if (this.workedUntil) text = `Done ${formatDuration((now - this.workedUntil) / 1000)} ago`;
-		else text = "Idle";
-		return this.charset.cells(`π ${text}`);
+		}
+		return this.charset.cells(text ? `π ${text}` : "π");
 	}
 
 	/** `/screensaver` starts it now; a mode or a number of minutes changes the setting and keeps it. */

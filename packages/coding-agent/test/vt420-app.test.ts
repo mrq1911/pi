@@ -284,7 +284,7 @@ describe("vt420 app", () => {
 			const rows = app.emulator.screen();
 			const lit = rows.flatMap((row, index) => (row === "" ? [] : [{ row: index, text: row }]));
 			expect(lit).toHaveLength(1);
-			expect(lit[0]!.text.trim()).toBe("π Idle");
+			expect(lit[0]!.text.trim()).toBe("π");
 			places.add(`${lit[0]!.row}:${lit[0]!.text.indexOf("π")}`);
 			await settle(70);
 		}
