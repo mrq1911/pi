@@ -379,6 +379,8 @@ describe("vt420 app", () => {
 		// the screen moves down a line at a time, gliding, with smooth scroll on for the whole rain
 		expect(app.output.join("")).toContain("\x1b[?4h");
 		expect(app.output.slice(before).join("")).toContain("\x1bM");
+		// one line a frame: several at once would jump instead of gliding
+		expect(app.output.slice(before).join("")).not.toContain("\x1bM\x1bM");
 		await app.type("x");
 		expect(app.emulator.text(2)).toContain("VT420");
 		await waitForIdle(harness);
