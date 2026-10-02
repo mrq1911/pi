@@ -132,6 +132,11 @@ project trust, telemetry) and the screen saver's; `/scoped-models` picks the mod
 for the session and, with Save, for the next start. `/share` and `/bug` work as in pi (Radius, or a secret gist
 through `gh`; the bug report's consents, upload or a zip in the current directory), with their progress on the
 separator row, where interrupt cancels it.
+
+Extension commands work as in pi, pi's own and yours (`--no-extensions` leaves yours out): they get the frontend's
+lists, yes-or-no questions, one-line prompts, notices and the separator row for their status, and appear in Tab
+completion, the command menu and help, with skills as `/skill:name`. What needs pi's TUI components (widgets, custom
+components) does nothing, as in RPC mode.
 Prompt templates and `/skill:name` work as in pi. `!cmd` runs a shell command; `!!cmd` keeps its output out of the context.
 
 `/login` prints the sign-in address or device code (the code in double-height letters) for another device and
@@ -147,4 +152,5 @@ reads keys or pasted codes from the keyboard.
 
 ## Not included
 
-Extensions, themes, images and mouse. Use `pi` for those; the sessions are shared.
+Themes, images, mouse, and extension widgets, headers, footers and custom components. Use `pi` for those; the
+sessions are shared.

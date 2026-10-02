@@ -22,9 +22,11 @@ import { fuzzyFilter } from "@earendil-works/pi-tui";
 import { getAuthCredential } from "../../cli/auth-command.ts";
 import { getShareViewerUrl } from "../../config.ts";
 import type { AgentSession, AgentSessionEvent } from "../../core/agent-session.ts";
+import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
 import { bugReportArchiveFileName, writeBugReportArchive } from "../../core/bug-report.ts";
 import { uploadBugReport } from "../../core/bug-report-upload.ts";
 import { DEFAULT_THINKING_LEVEL } from "../../core/defaults.ts";
+import type { ExtensionUIContext } from "../../core/extensions/index.ts";
 import {
 	configureHttpDispatcher,
 	formatHttpIdleTimeoutMs,
@@ -49,6 +51,7 @@ import { copyToClipboard } from "../../utils/clipboard.ts";
 import { ATTR_BOLD, LINE_DOUBLE_BOTTOM, LINE_DOUBLE_TOP, LINE_SINGLE, type Line } from "./cells.ts";
 import { Charset } from "./charset.ts";
 import { LineEditor } from "./editor.ts";
+import { createExtensionUI } from "./extension-ui.ts";
 import type { InputEvent, TerminalResponse } from "./input.ts";
 import type { Keymap, Vt420Action } from "./keys.ts";
 import { renderMarkdown } from "./markdown.ts";
@@ -92,21 +95,10 @@ import {
 } from "./widgets.ts";
 
 /** The part of AgentSessionRuntime the frontend uses. */
-export interface Vt420Runtime {
-	readonly session: AgentSession;
-	readonly cwd: string;
-	newSession(): Promise<{ cancelled: boolean }>;
-	switchSession(sessionPath: string, options?: { cwdOverride?: string }): Promise<{ cancelled: boolean }>;
-	readonly services: { readonly agentDir: string };
-	/** A new session from entry `entryId`: before it (a user message to edit again) or at it (a clone). */
-	fork(
-		entryId: string,
-		options?: { position?: "before" | "at" },
-	): Promise<{ cancelled: boolean; selectedText?: string }>;
-	/** Replace the session with a JSONL file, run in `cwdOverride` when the directory it names is gone. */
-	importFromJsonl(inputPath: string, cwdOverride?: string): Promise<{ cancelled: boolean }>;
-	setRebindSession(rebind?: (session: AgentSession) => Promise<void>): void;
-}
+export type Vt420Runtime = Pick<
+	AgentSessionRuntime,
+	"session" | "cwd" | "newSession" | "switchSession" | "fork" | "importFromJsonl" | "setRebindSession"
+> & { readonly services: { readonly agentDir: string } };
 
 /** The terminal as the frontend sees it. */
 export interface Vt420Io {
@@ -311,6 +303,10 @@ export class Vt420App {
 	private retry: { attempt: number; max: number; until: number } | undefined;
 	private compacting: string | undefined;
 	private summarizing = false;
+	private readonly extensionUI: ExtensionUIContext;
+	/** What extensions show on the separator row when nothing else is, and their word for working. */
+	private extensionStatus: string | undefined;
+	private workingWord: string | undefined;
 	/** Something a command waits for, shown on the separator row; interrupt cancels it. */
 	private activity: { text: string; controller: AbortController } | undefined;
 	private queued = 0;
@@ -363,6 +359,32 @@ export class Vt420App {
 		const saver = options.screensaver ?? "auto";
 		this.saver = saver === "auto" ? (caps.unicode ? "off" : "progress") : saver;
 		this.saverMinutes = options.screensaverMinutes ?? SAVER_MINUTES;
+		this.extensionUI = createExtensionUI({
+			select: (title, items, signal) => this.dialogSelect(title, items, signal),
+			input: (title, initial, signal) => this.dialogInput(title, initial, signal),
+			notice: (level, text) => this.notice(level, text),
+			status: (text) => {
+				this.extensionStatus = text;
+				this.requestRender();
+			},
+			working: (message) => {
+				this.workingWord = message;
+				this.requestRender();
+			},
+			editorText: () => this.editor.text,
+			setEditorText: (text) => {
+				this.editor.setText(text);
+				this.requestRender();
+			},
+			insertText: (text) => {
+				this.editor.insert(text);
+				this.requestRender();
+			},
+			toolsExpanded: () => this.expandTools,
+			setToolsExpanded: (expanded) => {
+				if (expanded !== this.expandTools) this.toggleTools();
+			},
+		});
 	}
 
 	/** Run until the user exits. */
@@ -441,7 +463,29 @@ export class Vt420App {
 	private async bindSession(): Promise<void> {
 		this.unsubscribe?.();
 		const session = this.session;
-		await session.bindExtensions({ mode: "print", onError: (error) => this.notice("error", error.error) });
+		await session.bindExtensions({
+			// dialogs without pi's TUI components, as in RPC mode
+			mode: "rpc",
+			uiContext: this.extensionUI,
+			commandContextActions: {
+				waitForIdle: () => session.waitForIdle(),
+				newSession: (options) => this.runtime.newSession(options),
+				fork: async (entryId, options) => ({ cancelled: (await this.runtime.fork(entryId, options)).cancelled }),
+				navigateTree: async (targetId, options) => {
+					const result = await session.navigateTree(targetId, options);
+					this.rebuildTranscript();
+					this.refreshFooter();
+					this.requestRender();
+					return { cancelled: result.cancelled };
+				},
+				switchSession: (sessionPath, options) => this.runtime.switchSession(sessionPath, options),
+				reload: async () => {
+					await session.reload();
+				},
+			},
+			shutdownHandler: () => this.exit(),
+			onError: (error) => this.notice("error", `Extension ${error.extensionPath}: ${error.error}`),
+		});
 		this.unsubscribe = session.subscribe((event) => this.onSessionEvent(event));
 		this.working = session.isStreaming;
 		this.rebuildTranscript();
@@ -903,9 +947,13 @@ export class Vt420App {
 	private complete(): void {
 		const text = this.editor.text;
 		if (!text.startsWith("/") || text.includes(" ") || text.includes("\n")) return;
+		const session = this.session;
 		const names = [
-			...COMMANDS.map((command) => command.name),
-			...this.session.promptTemplates.map((template) => template.name),
+			...this.allCommands().map((command) => command.name),
+			...session.promptTemplates.map((template) => template.name),
+			...(session.settingsManager.getEnableSkillCommands()
+				? session.resourceLoader.getSkills().skills.map((skill) => `skill:${skill.name}`)
+				: []),
 		];
 		const prefix = text.slice(1);
 		const matches = [...new Set(names)].filter((name) => name.startsWith(prefix)).sort();
@@ -1236,15 +1284,27 @@ export class Vt420App {
 		}
 	}
 
+	/** The frontend's commands, then those extensions registered, which the session runs. */
+	private allCommands(): CommandInfo[] {
+		const own = new Set(COMMANDS.map((command) => command.name));
+		const extensions = this.session.extensionRunner
+			.getRegisteredCommands()
+			.filter((command) => !own.has(command.invocationName))
+			.map((command) => ({ name: command.invocationName, description: command.description ?? "extension command" }));
+		return [...COMMANDS, ...extensions];
+	}
+
 	private showMenu(): void {
-		const items = COMMANDS.map((command) => ({
+		const commands = this.allCommands();
+		const items = commands.map((command) => ({
 			value: command.name,
 			label: `/${command.name}${command.args ? ` ${command.args}` : ""}`,
 			detail: command.description,
 		}));
 		this.openSelector("Commands", items, (item) => {
 			const command = COMMANDS.find((candidate) => candidate.name === item.value);
-			if (command?.args?.startsWith("<")) this.editor.setText(`/${command.name} `);
+			// an extension's command may take arguments, so it waits in the editor for Return
+			if (!command || command.args?.startsWith("<")) this.editor.setText(`/${item.value} `);
 			else this.runCommand(`/${item.value}`);
 		});
 	}
@@ -1252,7 +1312,7 @@ export class Vt420App {
 	private showHelp(): void {
 		this.mode = {
 			kind: "help",
-			lines: renderHelp(this.keymap, COMMANDS, this.charset, this.io.caps.columns),
+			lines: renderHelp(this.keymap, this.allCommands(), this.charset, this.io.caps.columns),
 			top: 0,
 		};
 	}
@@ -2174,6 +2234,59 @@ export class Vt420App {
 		this.notice("info", `Bug report exported to ${archive}, report ID ${bundle.metadata.id}`);
 	}
 
+	/** An open dialog gives way to a new one, answering as cancelled, so no extension waits on it forever. */
+	private cancelDialog(): void {
+		const mode = this.mode;
+		if (mode.kind === "selector") {
+			this.mode = { kind: "normal" };
+			mode.onCancel?.();
+		} else if (mode.kind === "prompt" && !mode.auth) {
+			this.mode = { kind: "normal" };
+			mode.reject(new Error("Cancelled"));
+		}
+	}
+
+	/** An extension's list: the title's first line on the selector, the rest as a notice. */
+	private dialogSelect(title: string, options: readonly string[], signal: AbortSignal): Promise<number | undefined> {
+		this.cancelDialog();
+		const [heading = "", ...rest] = title.split("\n");
+		const more = rest.join(" ").trim();
+		if (more) this.notice("info", more);
+		return new Promise((resolve) => {
+			if (signal.aborted) {
+				resolve(undefined);
+				return;
+			}
+			const end = (index: number | undefined): void => {
+				signal.removeEventListener("abort", abort);
+				resolve(index);
+			};
+			const abort = (): void => {
+				if (this.mode.kind === "selector" && this.mode.title === heading) this.mode = { kind: "normal" };
+				this.requestRender();
+				end(undefined);
+			};
+			signal.addEventListener("abort", abort, { once: true });
+			this.openSelector(
+				heading,
+				options.map((option, index) => ({ value: String(index), label: option })),
+				(item) => end(Number(item.value)),
+				() => end(undefined),
+			);
+		});
+	}
+
+	private dialogInput(title: string, initial: string, signal: AbortSignal): Promise<string | undefined> {
+		this.cancelDialog();
+		if (signal.aborted) return Promise.resolve(undefined);
+		const answer = this.ask(title, initial);
+		const abort = (): void => {
+			if (this.mode.kind === "prompt" && this.mode.message === title) this.cancelDialog();
+		};
+		signal.addEventListener("abort", abort, { once: true });
+		return answer.finally(() => signal.removeEventListener("abort", abort));
+	}
+
 	/** One of `options` from the selector; undefined when cancelled. */
 	private choose(title: string, options: readonly string[]): Promise<string | undefined> {
 		return new Promise((resolve) => {
@@ -2648,10 +2761,11 @@ export class Vt420App {
 		if (this.activity) return `${this.activity.text} ${spinner} · ${interrupt} stop`;
 		if (this.working) {
 			const seconds = Math.floor((now - this.workingSince) / 1000);
-			return `Working ${spinner}${seconds > 0 ? ` ${formatDuration(seconds)}` : ""} · ${interrupt} stop`;
+			const word = this.workingWord ?? "Working";
+			return `${word} ${spinner}${seconds > 0 ? ` ${formatDuration(seconds)}` : ""} · ${interrupt} stop`;
 		}
 		if (this.bashRunning) return `Running ${spinner} · ${interrupt} stop`;
-		return undefined;
+		return this.extensionStatus;
 	}
 
 	private separator(width: number): number[] {

@@ -511,6 +511,50 @@ describe("vt420 app", () => {
 		await app.done;
 	});
 
+	it("runs extension commands with the frontend's dialogs, and lists them", async () => {
+		const harness = await createHarness({
+			extensionFactories: [
+				{
+					factory: (pi) => {
+						pi.registerCommand("greet", {
+							description: "say hello",
+							handler: async (args, ctx) => {
+								const who = await ctx.ui.select("Greet whom?", ["world", "VT420"]);
+								const loud = await ctx.ui.confirm("Loudly?", "With an exclamation mark");
+								ctx.ui.notify(`hello ${who}${loud ? "!" : ""} ${args}`.trim(), "info");
+								ctx.ui.setStatus("greet", "greeted");
+							},
+						});
+					},
+				},
+			],
+		});
+		harnesses.push(harness);
+		const app = await start(harness);
+		// completion and the help know it
+		await app.type("/gre");
+		await app.key("tab");
+		expect(app.screen()).toContain("π /greet");
+		await app.type("there");
+		await app.key("return");
+		await settle(100);
+		expect(app.screen()).toContain("Greet whom?");
+		await app.key("down");
+		await app.key("return");
+		await settle(50);
+		expect(app.screen()).toContain("Loudly?");
+		await app.key("return");
+		await settle(100);
+		expect(app.screen()).toContain("hello VT420! there");
+		expect(app.screen()).toContain("greeted");
+		await app.key("f14");
+		await app.type("greet");
+		expect(app.screen()).toContain("say hello");
+		await app.key("f11");
+		await app.key("ctrl+d");
+		await app.done;
+	});
+
 	it("letter-spaces the banner and keeps headings at normal size without double-size lines", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);

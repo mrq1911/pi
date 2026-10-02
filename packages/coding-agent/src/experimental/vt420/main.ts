@@ -18,7 +18,9 @@ import { resolveCliModel, resolveModelScopeWithDiagnostics, type ScopedModel } f
 import { SessionManager } from "../../core/session-manager.ts";
 import { SettingsManager } from "../../core/settings-manager.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "../../core/trust-manager.ts";
+import { builtInExtensions } from "../../extensions/index.ts";
 import { refreshModelCatalogs } from "../../modes/interactive/model-catalog-refresh.ts";
+import { initTheme } from "../../modes/interactive/theme/theme.ts";
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { Vt420App } from "./app.ts";
 import type { SupplementalSet } from "./charset.ts";
@@ -55,6 +57,7 @@ interface Args {
 	thinking?: ThinkingLevel;
 	approve?: boolean;
 	offline: boolean;
+	noExtensions: boolean;
 	log?: string;
 	help: boolean;
 	version: boolean;
@@ -76,6 +79,7 @@ Session
   -a, --approve             trust project resources in .pi for this run
       --no-approve          ignore project resources in .pi
       --offline             do not refresh model catalogs
+      --no-extensions       load only pi's own extensions, not yours or the project's
 
 Terminal
       --columns 80|132      switch the terminal to 80 or 132 columns (DECSCPP)
@@ -120,6 +124,7 @@ function parseArgs(argv: readonly string[], config: Vt420Config): Args {
 		resume: false,
 		noSession: false,
 		offline: process.env.PI_OFFLINE === "1",
+		noExtensions: false,
 		help: false,
 		version: false,
 		config: { ...config },
@@ -166,6 +171,9 @@ function parseArgs(argv: readonly string[], config: Vt420Config): Args {
 				break;
 			case "--offline":
 				args.offline = true;
+				break;
+			case "--no-extensions":
+				args.noExtensions = true;
 				break;
 			case "--columns": {
 				const columns = Number(value());
@@ -288,7 +296,12 @@ async function main(): Promise<void> {
 			agentDir: options.agentDir,
 			settingsManager,
 			modelRuntimeSignal: AbortSignal.timeout(15_000),
-			resourceLoaderOptions: { noExtensions: true, noThemes: true },
+			// pi's own extensions and the user's, which get the frontend's dialogs; --no-extensions leaves the user's out
+			resourceLoaderOptions: {
+				noExtensions: args.noExtensions,
+				noThemes: true,
+				extensionFactories: builtInExtensions,
+			},
 		});
 		const diagnostics: AgentSessionRuntimeDiagnostic[] = [...services.diagnostics];
 		if (needsTrust && !projectTrusted) {
@@ -328,6 +341,8 @@ async function main(): Promise<void> {
 	};
 
 	const config = args.config;
+	// extensions may read ctx.ui.theme
+	initTheme("dark");
 	const terminal = await Vt420Terminal.open({
 		statusLine: config.statusLine ?? "auto",
 		doubleSize: config.doubleSize ?? "auto",
