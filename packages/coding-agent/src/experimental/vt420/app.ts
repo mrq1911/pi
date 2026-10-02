@@ -143,6 +143,8 @@ const SYNC_BYTES_PER_SECOND = 960;
  * so a whole page never runs ahead of it: flow control that comes back over ssh comes too late to stop one.
  */
 const SYNC_CHUNK = 160;
+/** Bytes a DEC terminal has not answered yet, at most: two pieces' worth, however the frames split into them. */
+const SYNC_BYTES_WINDOW = 2 * SYNC_CHUNK;
 
 /** Pieces joined into runs of at most `max` characters; a longer piece stays whole. */
 function chunks(parts: readonly string[], max: number): string[] {
@@ -2411,7 +2413,7 @@ export class Vt420App {
 
 	private requestRender(): void {
 		if (this.closed || this.renderTimer) return;
-		if (this.outbox.length > 0 || this.unanswered.length >= SYNC_WINDOW) {
+		if (this.outbox.length > 0 || !this.roomOnLine()) {
 			// the answer to an earlier frame draws this one
 			this.framePending = true;
 			return;
@@ -2426,7 +2428,7 @@ export class Vt420App {
 
 	private renderNow(): void {
 		if (this.closed) return;
-		if (this.outbox.length > 0 || this.unanswered.length >= SYNC_WINDOW) {
+		if (this.outbox.length > 0 || !this.roomOnLine()) {
 			this.framePending = true;
 			return;
 		}
@@ -2441,11 +2443,25 @@ export class Vt420App {
 		this.scheduleAnimation();
 	}
 
-	/** Send waiting pieces while the terminal has answered all but one of those out. */
+	/**
+	 * Whether another frame may start out. An emulator takes two whole frames ahead; a DEC terminal a few hundred
+	 * bytes, so a frame of small pieces can follow one still drawing, and the screen keeps moving.
+	 */
+	private roomOnLine(): boolean {
+		if (this.io.caps.unicode) return this.unanswered.length < SYNC_WINDOW;
+		return this.unanswered.reduce((sum, length) => sum + length, 0) < SYNC_BYTES_WINDOW;
+	}
+
+	/** Send waiting pieces while they fit in the window, or the line is empty. */
 	private pump(): void {
 		const sync = this.syncRequest;
 		if (!sync) return;
-		while (this.outbox.length > 0 && this.unanswered.length < SYNC_WINDOW) {
+		const fits = (next: number): boolean => {
+			if (this.unanswered.length === 0) return true;
+			if (this.io.caps.unicode) return this.unanswered.length < SYNC_WINDOW;
+			return this.unanswered.reduce((sum, length) => sum + length, 0) + next <= SYNC_BYTES_WINDOW;
+		};
+		while (this.outbox.length > 0 && fits(this.outbox[0]!.length + sync.bytes.length)) {
 			const bytes = this.outbox.shift()! + sync.bytes;
 			// counted before writing: a terminal can answer before write returns
 			this.unanswered.push(bytes.length);
@@ -2582,8 +2598,8 @@ export class Vt420App {
 			const budget = Math.round((bytesPerSecond ?? 1920) / 160);
 			this.rain = new MatrixRain(rows, columns, {
 				maxDrops: Math.max(6, Math.min(Math.floor(columns / 4), budget)),
-				// as many glints as drops: about 12 at 19200 baud
-				glints: Math.max(4, budget),
+				// two glints for every three drops: about 8 at 19200 baud
+				glints: Math.max(3, Math.round((budget * 2) / 3)),
 			});
 			// a message streaming now starts the rain from a little way back
 			this.rainSeen = Math.max(0, generatedText(this.streamingMessage()).length - 240);
@@ -2629,7 +2645,7 @@ export class Vt420App {
 	 */
 	private rainTick(): void {
 		const rain = this.rain;
-		if (!rain || this.outbox.length > 0 || this.unanswered.length >= SYNC_WINDOW) return;
+		if (!rain || this.outbox.length > 0 || !this.roomOnLine()) return;
 		const busy = this.saverBusy();
 		if (!rain.raining && !busy && !rain.active) return;
 		rain.step(busy ? this.charset.cells("π") : undefined);

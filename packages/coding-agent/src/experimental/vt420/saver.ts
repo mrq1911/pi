@@ -24,9 +24,9 @@ export function isSaverMode(value: string): value is SaverMode {
 /** How often the rain may fall a line; the terminal's answers hold it back to the pace it can glide. */
 export const RAIN_STEP_MS = 80;
 /** Glints racing down the streams at once, at most, unless the line speed says otherwise; each rewrites two cells a line. */
-const GLINTS_MAX = 12;
-/** Chance a line that a glint starts on a stream. */
-const GLINT_CHANCE = 0.8;
+const GLINTS_MAX = 8;
+/** Chance a free glint starts on a stream each line: every time, so as many race as may. */
+const GLINT_CHANCE = 1;
 /** Characters waiting to fall, at most; a model faster than the rain loses its oldest. */
 const RAIN_BACKLOG = 2000;
 /** Longest word one drop carries. */
@@ -169,13 +169,16 @@ export class MatrixRain {
 			this.grid[next]![col] = ahead | ATTR_BOLD;
 			return [{ row: next, col }];
 		});
-		// several tries a line, since a glint lives only until its stream's next gap
-		for (let tries = Math.max(1, Math.round(this.maxGlints / 4)); tries > 0; tries--) {
-			if (this.glints.length >= this.maxGlints || this.random() >= GLINT_CHANCE) continue;
-			const col = Math.floor(this.random() * this.columns);
+		// a glint lives only until its stream's next gap, so every line fills the free ones from streams just coming in
+		const free = [];
+		for (let col = 0; col < this.columns; col++) {
 			const start = cell(1, col);
-			if (isSpace(start) || start & ATTR_BOLD || this.glints.some((glint) => glint.col === col)) continue;
-			this.grid[1]![col] = start | ATTR_BOLD;
+			if (!isSpace(start) && !(start & ATTR_BOLD) && !this.glints.some((glint) => glint.col === col)) free.push(col);
+		}
+		while (this.glints.length < this.maxGlints && free.length > 0) {
+			const col = free.splice(Math.floor(this.random() * free.length), 1)[0]!;
+			if (this.random() >= GLINT_CHANCE) continue;
+			this.grid[1]![col] = cell(1, col) | ATTR_BOLD;
 			this.glints.push({ row: 1, col });
 		}
 	}

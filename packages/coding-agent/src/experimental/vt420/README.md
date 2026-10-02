@@ -64,11 +64,12 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
   on one line with how the thinking started. PF3 shows all of it.
 - **Bandwidth**: a diff renderer with relative cursor moves, IND/RI hardware scrolling inside DECSTBM margins, DCH to
   scroll the emulators' thinking ticker in place, ECH and DECFRA for long rules. A frame goes to a DEC terminal in
-  pieces of 160 bytes at most, each ending with a DSR request (DA1 where the terminal ignores DSR), and a piece goes
-  out only while at most one other is unanswered, so even a page never runs ahead of the terminal, whatever the line
-  speed, the buffers on the way or flow control that comes back over ssh too late to stop it; emulators get whole
-  frames paced the same way. XON/XOFF stays on, so Hold Screen works. On a terminal set to smooth scroll, scrolls of
-  more than two lines jump: gliding through a page takes seconds, and what arrives meanwhile would overflow it.
+  pieces of 160 bytes at most, each ending with a DSR request (DA1 where the terminal ignores DSR), and pieces go out
+  only while those unanswered come to 320 bytes at most, so even a page never runs ahead of the terminal while small
+  frames still follow each other without a pause, whatever the line speed, the buffers on the way or flow control that
+  comes back over ssh too late to stop it; emulators get whole frames paced the same way. XON/XOFF stays on, so Hold
+  Screen works. On a terminal set to smooth scroll, scrolls of more than two lines jump: gliding through a page takes
+  seconds, and what arrives meanwhile would overflow it.
 - **Screen saver**: a model can work for hours, and a CRT keeps a picture it shows that long, so after ten minutes
   without a key the screen goes dark. `progress`, the default on DEC terminals, shows one line of how the work goes
   (`π Working 1h 05m · 41.2 tok/s`, `π Waiting for you`, and just `π` once the work is done) in another place every

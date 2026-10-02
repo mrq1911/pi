@@ -21,7 +21,7 @@ interface Running {
 	emulator: Vt420Emulator;
 	output: string[];
 	/** Frame requests sent and answered, and the most unanswered at once. */
-	line: { requests: number; answers: number; mostAhead: number };
+	line: { requests: number; answers: number; mostAhead: number; mostBytes: number };
 	/** Entries the app asked the runtime to fork from. */
 	forks: string[];
 	done: Promise<void>;
@@ -63,13 +63,16 @@ async function start(
 		unicode: false,
 		...caps,
 	};
-	const counts = { requests: 0, answers: 0, mostAhead: 0 };
+	const counts = { requests: 0, answers: 0, mostAhead: 0, mostBytes: 0 };
+	/** Bytes of each piece written and not answered yet. */
+	const inFlight: number[] = [];
 	const forks: string[] = [];
 	let respond: ((response: TerminalResponse) => void) | undefined;
 	const answers = new InputParser({
 		onEvent: (event) => {
 			if (event.type !== "response") return;
 			counts.answers++;
+			inFlight.shift();
 			respond?.(event.response);
 		},
 	});
@@ -99,8 +102,14 @@ async function start(
 		backlogMs: 0,
 		write: (bytes) => {
 			output.push(bytes);
-			counts.requests += bytes.match(/\x1b\[5n|\x1b\[c/g)?.length ?? 0;
+			const requests = bytes.match(/\x1b\[5n|\x1b\[c/g)?.length ?? 0;
+			counts.requests += requests;
+			if (requests > 0) inFlight.push(bytes.length);
 			counts.mostAhead = Math.max(counts.mostAhead, counts.requests - counts.answers);
+			counts.mostBytes = Math.max(
+				counts.mostBytes,
+				inFlight.reduce((sum, length) => sum + length, 0),
+			);
 			emulator.feed(Buffer.from(bytes, capabilities.unicode ? "utf8" : "latin1"));
 		},
 		onInput: (handler) => {
@@ -215,7 +224,7 @@ describe("vt420 app", () => {
 		await app.done;
 	});
 
-	it("paces its frames by the terminal's answers, never more than two ahead", async () => {
+	it("paces its frames by the terminal's answers, a few hundred bytes at most ahead", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
 		const app = await start(harness, { deviceStatus: true }, undefined, { answerDelayMs: 40 });
@@ -224,7 +233,8 @@ describe("vt420 app", () => {
 			await settle(4);
 		}
 		await settle(300);
-		expect(app.line.mostAhead).toBe(2);
+		expect(app.line.mostAhead).toBeGreaterThan(1);
+		expect(app.line.mostBytes).toBeLessThanOrEqual(320);
 		// fewer frames than keys, the last showing all of them
 		expect(app.line.requests).toBeLessThan(30);
 		expect(app.screen()).toContain("x".repeat(50));
@@ -235,7 +245,7 @@ describe("vt420 app", () => {
 		await app.done;
 	});
 
-	it("sends a whole page to a DEC terminal in answered pieces, never more than two out", async () => {
+	it("sends a whole page to a DEC terminal in answered pieces, a few hundred bytes at most out", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
 		const app = await start(harness, { deviceStatus: true }, undefined, { answerDelayMs: 30 });
@@ -244,10 +254,10 @@ describe("vt420 app", () => {
 		await settle(1500);
 		const sent = app.output.slice(before);
 		expect(sent.length).toBeGreaterThanOrEqual(4);
-		// pieces of about 160 bytes, each with its request, two at most on the line
+		// pieces of about 160 bytes, each with its request, two pieces' worth at most on the line
 		expect(Math.max(...sent.map((piece) => piece.length))).toBeLessThanOrEqual(200);
 		expect(sent.every((piece) => piece.endsWith("\x1b[5n"))).toBe(true);
-		expect(app.line.mostAhead).toBeLessThanOrEqual(2);
+		expect(app.line.mostBytes).toBeLessThanOrEqual(320);
 		expect(app.screen()).toContain("send, steer while working");
 		await app.key("f11");
 		await app.key("ctrl+d");
