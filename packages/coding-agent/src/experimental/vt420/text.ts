@@ -124,3 +124,12 @@ export function splitCells(cells: readonly number[]): number[][] {
 	}
 	return rows;
 }
+
+/** "45s", "3m 07s" or "1h 05m": seconds tick while it is short, minutes once it runs for hours. */
+export function formatDuration(seconds: number): string {
+	const whole = Math.max(0, Math.floor(seconds));
+	if (whole < 60) return `${whole}s`;
+	const minutes = Math.floor(whole / 60);
+	if (minutes < 60) return `${minutes}m ${String(whole % 60).padStart(2, "0")}s`;
+	return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
+}

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { isValidThinkingLevel } from "../../cli/args.ts";
@@ -42,6 +42,8 @@ interface Vt420Config {
 	escapeTimeoutMs?: number;
 	/** The start-up animation. */
 	intro?: boolean;
+	screensaver?: "auto" | "off" | "blank" | "progress";
+	screensaverMinutes?: number;
 }
 
 interface Args {
@@ -89,7 +91,7 @@ Terminal
       --log <file>          append terminal output and stray console output to a file
 
 Settings are read from ~/.pi/agent/vt420.json; keys there override the defaults, e.g.
-  { "keys": { "app.interrupt": ["f11", "escape"] }, "baud": 19200 }
+  { "keys": { "app.interrupt": ["f11", "escape"] }, "baud": 19200, "screensaver": "blank", "screensaverMinutes": 5 }
 `;
 
 function fail(message: string): never {
@@ -104,6 +106,12 @@ function loadConfig(path: string): Vt420Config {
 	} catch (error) {
 		fail(`cannot read ${path}: ${error instanceof Error ? error.message : String(error)}`);
 	}
+}
+
+/** Merge settings into vt420.json, keeping everything else in it. */
+function saveConfig(path: string, settings: Partial<Vt420Config>): void {
+	const current = existsSync(path) ? (JSON.parse(readFileSync(path, "utf8")) as Vt420Config) : {};
+	writeFileSync(path, `${JSON.stringify({ ...current, ...settings }, null, 2)}\n`);
 }
 
 function parseArgs(argv: readonly string[], config: Vt420Config): Args {
@@ -249,7 +257,8 @@ async function openSessionManager(args: Args, cwd: string, sessionDir: string | 
 async function main(): Promise<void> {
 	setupCli();
 	const agentDir = getAgentDir();
-	const args = parseArgs(process.argv.slice(2), loadConfig(join(agentDir, "vt420.json")));
+	const configPath = join(agentDir, "vt420.json");
+	const args = parseArgs(process.argv.slice(2), loadConfig(configPath));
 	if (args.help) {
 		process.stdout.write(USAGE);
 		return;
@@ -361,6 +370,9 @@ async function main(): Promise<void> {
 		sessionDir,
 		largeHeadings: config.largeHeadings,
 		pasteWindowMs: config.pasteWindowMs,
+		screensaver: config.screensaver,
+		screensaverMinutes: config.screensaverMinutes,
+		saveSettings: (settings) => saveConfig(configPath, settings),
 	});
 	try {
 		await app.run({

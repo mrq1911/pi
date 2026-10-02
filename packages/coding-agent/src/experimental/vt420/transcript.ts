@@ -14,7 +14,7 @@ import { parseSkillBlock } from "../../core/agent-session.ts";
 import { ATTR_BOLD, BLANK, LINE_SINGLE, type Line } from "./cells.ts";
 import type { Charset } from "./charset.ts";
 import { renderMarkdown } from "./markdown.ts";
-import { expandTabs, hardWrap, padCells, spaces, stripAnsi, truncateCells, wrapCells } from "./text.ts";
+import { expandTabs, formatDuration, hardWrap, padCells, spaces, stripAnsi, truncateCells, wrapCells } from "./text.ts";
 
 export const SPINNER = ["⎺", "⎻", "─", "⎼", "⎽", "⎼", "─", "⎻"];
 
@@ -366,7 +366,7 @@ function failMark(charset: Charset): string {
 function spinnerStatus(context: RenderContext, startedAt: number | undefined): string {
 	const frame = SPINNER[context.tick % SPINNER.length]!;
 	const seconds = startedAt === undefined ? 0 : Math.floor((context.now - startedAt) / 1000);
-	return seconds >= 2 ? `${frame} ${seconds}s` : frame;
+	return seconds >= 2 ? `${frame} ${formatDuration(seconds)}` : frame;
 }
 
 /** A tool header with its status right-aligned. */

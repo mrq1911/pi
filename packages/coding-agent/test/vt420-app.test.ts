@@ -2,7 +2,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { fauxAssistantMessage, fauxThinking, fauxToolCall } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
-import { Vt420App, type Vt420Io, type Vt420Runtime } from "../src/experimental/vt420/app.ts";
+import { Vt420App, type Vt420AppOptions, type Vt420Io, type Vt420Runtime } from "../src/experimental/vt420/app.ts";
 import { type InputEvent, InputParser, type TerminalResponse } from "../src/experimental/vt420/input.ts";
 import { Keymap } from "../src/experimental/vt420/keys.ts";
 import { charsetDesignations, SESSION_MODES, statusLineType } from "../src/experimental/vt420/sequences.ts";
@@ -45,6 +45,7 @@ async function start(
 	caps: Partial<TerminalCapabilities> = {},
 	statusState?: EmulatorOptions["statusState"],
 	line?: Line,
+	extra: Partial<Vt420AppOptions> = {},
 ): Promise<Running> {
 	const capabilities: TerminalCapabilities = {
 		rows: 24,
@@ -120,7 +121,15 @@ async function start(
 		switchSession: async () => ({ cancelled: false }),
 		setRebindSession: () => {},
 	};
-	const app = new Vt420App({ runtime, io, keymap: new Keymap(), version: "test", pasteWindowMs: 0, animationFps: 20 });
+	const app = new Vt420App({
+		runtime,
+		io,
+		keymap: new Keymap(),
+		version: "test",
+		pasteWindowMs: 0,
+		animationFps: 20,
+		...extra,
+	});
 	const done = app.run();
 	await settle();
 	const send = async (event: InputEvent): Promise<void> => {
@@ -241,6 +250,51 @@ describe("vt420 app", () => {
 		await lost.key("ctrl+d");
 		await lost.done;
 	}, 10_000);
+
+	it("darkens the screen after a spell without keys, and the key that wakes it does nothing else", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		const app = await start(harness, {}, undefined, undefined, { screensaver: "blank", screensaverMinutes: 0.003 });
+		expect(app.emulator.text(2)).toContain("VT420");
+		await settle(300);
+		expect(app.emulator.screen().every((row) => row === "")).toBe(true);
+		expect(app.emulator.statusText().trim()).toBe("");
+		expect(app.emulator.cursorVisible).toBe(false);
+		await app.type("x");
+		expect(app.emulator.text(2)).toContain("VT420");
+		expect(app.screen()).not.toContain("π x");
+		await app.key("ctrl+d");
+		await app.done;
+	});
+
+	it("shows how the work goes, somewhere else every so often, and /screensaver keeps its setting", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		const saved: unknown[] = [];
+		const app = await start(harness, {}, undefined, undefined, {
+			screensaver: "off",
+			saverMoveMs: 60,
+			saveSettings: (settings) => saved.push(settings),
+		});
+		await app.submit("/screensaver progress 0.003");
+		expect(saved).toEqual([{ screensaver: "progress", screensaverMinutes: 0.003 }]);
+		await settle(300);
+		const places = new Set<string>();
+		for (let look = 0; look < 6; look++) {
+			const rows = app.emulator.screen();
+			const lit = rows.flatMap((row, index) => (row === "" ? [] : [{ row: index, text: row }]));
+			expect(lit).toHaveLength(1);
+			expect(lit[0]!.text.trim()).toBe("π Idle");
+			places.add(`${lit[0]!.row}:${lit[0]!.text.indexOf("π")}`);
+			await settle(70);
+		}
+		expect(places.size).toBeGreaterThan(1);
+		await app.key("f8");
+		await settle(40);
+		expect(app.emulator.text(2)).toContain("VT420");
+		await app.key("ctrl+d");
+		await app.done;
+	});
 
 	it("letter-spaces the banner and keeps headings at normal size without double-size lines", async () => {
 		const harness = await createHarness();

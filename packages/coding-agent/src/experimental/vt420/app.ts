@@ -18,9 +18,10 @@ import { LineEditor } from "./editor.ts";
 import type { InputEvent, TerminalResponse } from "./input.ts";
 import type { Keymap, Vt420Action } from "./keys.ts";
 import { type Frame, type Renderer, rendererFor } from "./renderer.ts";
+import { isSaverMode, SAVER_MINUTES, SAVER_MOVE_MS, type SaverMode, saverFrame, saverPlace } from "./saver.ts";
 import { SpeedMeter } from "./speed.ts";
 import type { TerminalCapabilities } from "./terminal.ts";
-import { padCells, spaces, truncateCells } from "./text.ts";
+import { formatDuration, padCells, spaces, truncateCells } from "./text.ts";
 import {
 	type BashState,
 	type RenderContext,
@@ -76,6 +77,12 @@ export interface Vt420AppOptions {
 	/** A Return followed by more input within this window is a pasted newline, not a submit. */
 	pasteWindowMs?: number;
 	animationFps?: number;
+	/** Screen saver after a spell without keys; "auto" is "progress" on a DEC terminal and "off" on emulators. */
+	screensaver?: SaverMode | "auto";
+	screensaverMinutes?: number;
+	saverMoveMs?: number;
+	/** Keep settings changed by a command, such as /screensaver. */
+	saveSettings?(settings: { screensaver: SaverMode; screensaverMinutes: number }): void;
 }
 
 /** Longest working directory the footer shows; longer ones shrink to their last component. */
@@ -101,6 +108,7 @@ export const COMMANDS: readonly CommandInfo[] = [
 	{ name: "reload", description: "reload skills, prompts and context files" },
 	{ name: "charset", description: "show every VT420 glyph" },
 	{ name: "redraw", description: "repaint the screen" },
+	{ name: "screensaver", args: "[off|blank|progress] [min]", description: "dark screen now, or set when" },
 	{ name: "quit", description: "exit" },
 ];
 
@@ -207,6 +215,14 @@ export class Vt420App {
 	private syncTimer: ReturnType<typeof setTimeout> | undefined;
 	private framePending = false;
 	private lastFrameAt = 0;
+	private saver: SaverMode;
+	private saverMinutes: number;
+	private saverTimer: ReturnType<typeof setTimeout> | undefined;
+	private saverMoveTimer: ReturnType<typeof setInterval> | undefined;
+	/** The screen saver showing, and which; the next key only wakes the screen. */
+	private saving: SaverMode | undefined;
+	private saverPlace = { row: 0, col: 0 };
+	private workedUntil = 0;
 	private lastClearAt = 0;
 	private loginController: AbortController | undefined;
 	private closed = false;
@@ -224,6 +240,9 @@ export class Vt420App {
 			eightBit: caps.eightBit,
 		});
 		this.renderer = this.createRenderer();
+		const saver = options.screensaver ?? "auto";
+		this.saver = saver === "auto" ? (caps.unicode ? "off" : "progress") : saver;
+		this.saverMinutes = options.screensaverMinutes ?? SAVER_MINUTES;
 	}
 
 	/** Run until the user exits. */
@@ -252,6 +271,7 @@ export class Vt420App {
 			this.requestRender();
 		});
 		this.renderNow();
+		this.armSaver();
 		if (initial.resume) void this.showSessions();
 		if (initial.prompt) {
 			this.editor.setText(initial.prompt);
@@ -263,9 +283,16 @@ export class Vt420App {
 		this.runtime.setRebindSession(undefined);
 		this.loginController?.abort();
 		this.io.onResponse?.(undefined);
-		for (const timer of [this.renderTimer, this.animationTimer, this.pendingReturn, this.syncTimer]) {
+		for (const timer of [
+			this.renderTimer,
+			this.animationTimer,
+			this.pendingReturn,
+			this.syncTimer,
+			this.saverTimer,
+		]) {
 			if (timer) clearTimeout(timer);
 		}
+		clearInterval(this.saverMoveTimer);
 	}
 
 	/** Request exit; `run()` resolves afterwards. */
@@ -410,6 +437,7 @@ export class Vt420App {
 				break;
 			case "agent_end":
 				this.working = false;
+				this.workedUntil = Date.now();
 				if (this.streaming && this.streaming.render(this.context(this.io.caps.columns)).length === 0) {
 					this.transcript.remove(this.streaming);
 				}
@@ -579,6 +607,12 @@ export class Vt420App {
 
 	private handleInput(event: InputEvent): void {
 		if (this.closed) return;
+		if (this.saving) {
+			// the key that wakes the screen does nothing else
+			this.wake();
+			return;
+		}
+		this.armSaver();
 		if (this.pendingReturn !== undefined) {
 			clearTimeout(this.pendingReturn);
 			this.pendingReturn = undefined;
@@ -870,6 +904,9 @@ export class Vt420App {
 				return true;
 			case "redraw":
 				this.redraw();
+				return true;
+			case "screensaver":
+				this.screensaverCommand(args);
 				return true;
 			case "quit":
 			case "exit":
@@ -1404,6 +1441,7 @@ export class Vt420App {
 
 	private compose(): Frame {
 		const { rows, columns, statusLine } = this.io.caps;
+		if (this.saving) return saverFrame(rows, columns, this.saverLine(), this.saverPlace, statusLine);
 		const input = this.inputLayout(columns);
 		const maxInput = Math.max(1, Math.min(8, Math.floor(rows / 4)));
 		const inputTop = Math.max(0, Math.min(input.cursorRow - maxInput + 1, input.rows.length - maxInput));
@@ -1425,6 +1463,89 @@ export class Vt420App {
 				: undefined,
 			scroll: { top: 0, bottom: regionHeight - 1 },
 		};
+	}
+
+	// ---------------------------------------------------------------------------------------------
+	// Screen saver
+
+	/** Start the screen saver once the configured spell passes without a key. */
+	private armSaver(): void {
+		clearTimeout(this.saverTimer);
+		this.saverTimer = undefined;
+		if (this.saver === "off" || this.closed) return;
+		this.saverTimer = setTimeout(() => this.startSaver(this.saver), this.saverMinutes * 60_000);
+	}
+
+	private startSaver(mode: SaverMode): void {
+		if (mode === "off" || this.saving || this.closed) return;
+		clearTimeout(this.saverTimer);
+		this.saverTimer = undefined;
+		this.saving = mode;
+		// a light screen would stay lit
+		if (this.io.caps.screenReverse) this.io.write("\x1b[?5l");
+		this.moveSaver();
+		if (mode === "progress")
+			this.saverMoveTimer = setInterval(() => this.moveSaver(), this.options.saverMoveMs ?? SAVER_MOVE_MS);
+	}
+
+	private moveSaver(): void {
+		const { rows, columns } = this.io.caps;
+		this.saverPlace = saverPlace(rows, columns, this.saverLine()?.length ?? 0);
+		this.requestRender();
+	}
+
+	private wake(): void {
+		this.saving = undefined;
+		clearInterval(this.saverMoveTimer);
+		this.saverMoveTimer = undefined;
+		if (this.io.caps.screenReverse) this.io.write("\x1b[?5h");
+		this.armSaver();
+		this.requestRender();
+	}
+
+	/** The progress saver's line: how long the work has run, or how long ago it ended. */
+	private saverLine(): number[] | undefined {
+		if (this.saving !== "progress") return undefined;
+		const now = Date.now();
+		let text: string;
+		if (this.mode.kind === "prompt" || this.mode.kind === "selector") text = "Waiting for you";
+		else if (this.retry) text = `Retrying in ${formatDuration(Math.max(0, this.retry.until - now) / 1000)}`;
+		else if (this.compacting) text = "Compacting";
+		else if (this.working) {
+			const output = this.charset.has("↓")
+				? `↓${formatTokens(this.footer.output)}`
+				: `${formatTokens(this.footer.output)} out`;
+			text = `Working ${formatDuration((now - this.workingSince) / 1000)} · ${output}`;
+		} else if (this.workedUntil) text = `Done ${formatDuration((now - this.workedUntil) / 1000)} ago`;
+		else text = "Idle";
+		return this.charset.cells(`π ${text}`);
+	}
+
+	/** `/screensaver` starts it now; a mode or a number of minutes changes the setting and keeps it. */
+	private screensaverCommand(args: string): void {
+		const words = args.split(/\s+/).filter((word) => word !== "");
+		if (words.length === 0) {
+			this.startSaver(this.saver === "off" ? "progress" : this.saver);
+			return;
+		}
+		for (const word of words) {
+			const minutes = Number(word);
+			if (isSaverMode(word)) this.saver = word;
+			else if (Number.isFinite(minutes) && minutes > 0) this.saverMinutes = minutes;
+			else {
+				this.notice("warning", "Usage: /screensaver [off|blank|progress] [minutes]");
+				return;
+			}
+		}
+		try {
+			this.options.saveSettings?.({ screensaver: this.saver, screensaverMinutes: this.saverMinutes });
+		} catch (error) {
+			this.notice("error", `Cannot keep the setting: ${errorMessage(error)}`);
+		}
+		this.armSaver();
+		this.flash(
+			this.saver === "off" ? "Screen saver off" : `Screen saver: ${this.saver} after ${this.saverMinutes} min`,
+		);
 	}
 
 	private inputLayout(width: number): { rows: number[][]; cursorRow: number; cursorCol: number } {
@@ -1477,12 +1598,12 @@ export class Vt420App {
 		if (this.flashText && now <= this.flashText.until) return this.flashText.text;
 		if (this.retry) {
 			const seconds = Math.max(0, Math.ceil((this.retry.until - now) / 1000));
-			return `Retry ${this.retry.attempt}/${this.retry.max} in ${seconds}s · ${interrupt} stop`;
+			return `Retry ${this.retry.attempt}/${this.retry.max} in ${formatDuration(seconds)} · ${interrupt} stop`;
 		}
 		if (this.compacting) return `Compacting ${spinner} · ${interrupt} stop`;
 		if (this.working) {
 			const seconds = Math.floor((now - this.workingSince) / 1000);
-			return `Working ${spinner}${seconds > 0 ? ` ${seconds}s` : ""} · ${interrupt} stop`;
+			return `Working ${spinner}${seconds > 0 ? ` ${formatDuration(seconds)}` : ""} · ${interrupt} stop`;
 		}
 		if (this.bashRunning) return `Running ${spinner} · ${interrupt} stop`;
 		return undefined;

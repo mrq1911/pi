@@ -1,6 +1,7 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import { SpeedMeter } from "../src/experimental/vt420/speed.ts";
+import { formatDuration } from "../src/experimental/vt420/text.ts";
 
 function reply(text: string, output = 0, stopReason: AssistantMessage["stopReason"] = "stop"): AssistantMessage {
 	return {
@@ -51,5 +52,21 @@ describe("vt420 speed meter", () => {
 		meter.update(reply("x"), 7000);
 		meter.finish(reply("x", 1), 7010);
 		expect(meter.display).toEqual({ rate: 25, approximate: false });
+	});
+});
+
+describe("vt420 durations", () => {
+	it("counts seconds, then minutes and seconds, then hours and minutes", () => {
+		expect([0, 45, 59.9, 60, 187, 3599, 3600, 6000, 90_061].map(formatDuration)).toEqual([
+			"0s",
+			"45s",
+			"59s",
+			"1m 00s",
+			"3m 07s",
+			"59m 59s",
+			"1h 00m",
+			"1h 40m",
+			"25h 01m",
+		]);
 	});
 });

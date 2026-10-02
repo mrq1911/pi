@@ -67,6 +67,12 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
   (DA1 where the terminal ignores DSR), and a frame goes out only while at most one other is unanswered, so the
   terminal is never more than a frame behind, whatever the line speed, the buffers on the way or the flow control.
   XON/XOFF stays on, so Hold Screen works.
+- **Screen saver**: a model can work for hours, and a CRT keeps a picture it shows that long, so after ten minutes
+  without a key the screen goes dark. `progress`, the default on DEC terminals, shows one line of how the work goes
+  (`π Working 1h 05m · ↓12.3k`, `π Done 3m ago`, `π Waiting for you`) in another place every half minute; `blank`
+  shows nothing; `off` is the default on emulators. Any key wakes the screen and does nothing else. `/screensaver`
+  starts it at once; `/screensaver blank 5` sets the mode and minutes and keeps them in `vt420.json`
+  (`"screensaver"`, `"screensaverMinutes"`).
 - **Probing and restore**: DA1/DA2, DECRQSS, DECRQM, DECRQUPSS, DECRQDE and CPR decide what to use; the modes, status
   line type and designations found at startup are restored on exit.
 - **Emulators**: a terminal that decodes UTF-8 (found by printing é as two bytes and reading the cursor back) gets the
@@ -108,7 +114,8 @@ the LK401's F14 to F20, Help and Do on, count as those keys. Every binding can b
 ## Commands
 
 `/help`, `/model [name]`, `/thinking [level]`, `/new`, `/resume`, `/compact [focus]`, `/session`, `/name <name>`,
-`/login [provider]`, `/logout <provider>`, `/export [path]`, `/reload`, `/charset`, `/redraw`, `/quit`.
+`/login [provider]`, `/logout <provider>`, `/export [path]`, `/reload`, `/charset`, `/redraw`,
+`/screensaver [off|blank|progress] [minutes]`, `/quit`.
 Prompt templates and `/skill:name` work as in pi. `!cmd` runs a shell command; `!!cmd` keeps its output out of the context.
 
 `/login` prints the sign-in address or device code (the code in double-height letters) for another device and
