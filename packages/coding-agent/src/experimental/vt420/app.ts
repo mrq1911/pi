@@ -726,6 +726,7 @@ export class Vt420App {
 			["app.resume", () => void this.showSessions()],
 			["app.mainScreen", () => this.scrollToEnd()],
 			["app.redraw", () => this.redraw()],
+			["app.matrix", () => this.startSaver("matrix")],
 			["app.thinking.cycle", () => this.cycleThinking()],
 			["app.model.select", () => this.showModels()],
 			["app.model.cycle", () => void this.cycleModel()],

@@ -106,6 +106,7 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
 | F9 Main Screen, Select | back to the live view |
 | F14 Additional Options | command menu |
 | Help | keys and commands |
+| F20 | Matrix rain at once, whatever the screen saver is set to; any key ends it |
 | PF1 / PF2 / PF3 / PF4 | thinking level / model / show thinking / expand tool output |
 | Prev Screen, Next Screen, Find | page the transcript, jump to the top |
 | F12 BS, F13 LF | start of line, delete word (as on VMS) |

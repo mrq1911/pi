@@ -320,6 +320,17 @@ describe("vt420 app", () => {
 		harnesses.push(harness);
 		const saved: unknown[] = [];
 		const app = await start(harness, {}, undefined, undefined, { saveSettings: (settings) => saved.push(settings) });
+		// F20 rains at once without touching the setting; any key ends it
+		await app.key("f20");
+		expect(
+			app.emulator
+				.screen()
+				.filter((row) => row !== "")
+				.map((row) => row.trim()),
+		).toEqual(["π"]);
+		expect(saved).toEqual([]);
+		await app.type("x");
+		expect(app.emulator.text(2)).toContain("VT420");
 		await app.submit("/screensaver matrix");
 		expect(saved).toEqual([{ screensaver: "matrix", screensaverMinutes: 10 }]);
 		// nothing generated yet: the π line alone

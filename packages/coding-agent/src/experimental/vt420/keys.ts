@@ -39,6 +39,7 @@ export const VT420_KEYBINDINGS = {
 	"app.resume": { keys: ["f7"], description: "Resume session" },
 	"app.mainScreen": { keys: ["f9"], description: "Back to live view" },
 	"app.redraw": { keys: ["ctrl+l"], description: "Redraw screen" },
+	"app.matrix": { keys: ["f20"], description: "Matrix rain now" },
 	"app.thinking.cycle": { keys: ["pf1"], description: "Thinking level" },
 	"app.model.select": { keys: ["pf2", "f17"], description: "Select model" },
 	"app.model.cycle": { keys: ["ctrl+p", "f18"], description: "Next model" },

@@ -138,6 +138,7 @@ const HELP_KEYS: HelpEntry[] = [
 	{ action: "app.menu", label: "command menu" },
 	{ action: "app.model.cycle", label: "next model" },
 	{ action: "app.redraw", label: "redraw the screen" },
+	{ action: "app.matrix", label: "matrix rain" },
 ];
 
 export interface CommandInfo {
