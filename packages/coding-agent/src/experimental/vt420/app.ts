@@ -2598,10 +2598,10 @@ export class Vt420App {
 		if (this.io.caps.screenReverse) this.io.write("\x1b[?5l");
 		if (mode === "matrix") {
 			const { rows, columns, bytesPerSecond } = this.io.caps;
-			// a row the line can send while the terminal glides the last: about 12 drops at 19200 baud
+			// as dense as the line keeps smooth: 12 drops and 8 glints at 19200 baud, twice that at 38400
 			const budget = Math.round((bytesPerSecond ?? 1920) / 160);
 			this.rain = new MatrixRain(rows, columns, {
-				maxDrops: Math.max(6, Math.min(Math.floor(columns / 4), budget)),
+				maxDrops: Math.max(6, Math.min(Math.floor(columns / 3), budget)),
 				// two glints for every three drops: about 8 at 19200 baud
 				glints: Math.max(3, Math.round((budget * 2) / 3)),
 			});

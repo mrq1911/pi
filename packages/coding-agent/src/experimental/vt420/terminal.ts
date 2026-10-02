@@ -140,7 +140,8 @@ function detectLineSpeed(): number | undefined {
 	if (!serial && process.env.SSH_TTY !== device) return undefined;
 	const speed = Number(stty(["speed"]).output);
 	if (!Number.isFinite(speed) || speed <= 0) return undefined;
-	return serial || speed !== 38400 ? speed : undefined;
+	// 38400 is also every pseudo-terminal's default, so over ssh it counts only with a DEC terminal's own TERM
+	return serial || speed !== 38400 || /^vt\d/.test(process.env.TERM ?? "") ? speed : undefined;
 }
 
 export function emptyProbe(): ProbeResult {
