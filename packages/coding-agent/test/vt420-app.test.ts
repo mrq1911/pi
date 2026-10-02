@@ -363,15 +363,22 @@ describe("vt420 app", () => {
 		const before = app.output.length;
 		harness.setResponses([fauxAssistantMessage("alpha bravo charlie delta echo foxtrot golf hotel india juliet")]);
 		void harness.session.prompt("spell it");
-		await settle(1500);
-		const sent = app.output.slice(before).join("");
-		// the screen moves down a line at a time, gliding, and words read top to bottom in their columns
-		expect(sent).toContain("\x1b[?4h");
-		expect(sent).toContain("\x1bM");
-		const rows = app.emulator.screen();
-		const columns = Array.from({ length: 80 }, (_, col) => rows.map((row) => row[col] ?? " ").join(""));
+		// words read top to bottom in their columns as they fall
 		const words = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india", "juliet"];
-		expect(columns.some((text) => words.some((word) => text.includes(word)))).toBe(true);
+		const fallen = (): boolean => {
+			const rows = app.emulator.screen();
+			const columns = Array.from({ length: 80 }, (_, col) => rows.map((row) => row[col] ?? " ").join(""));
+			return columns.some((text) => words.some((word) => text.includes(word)));
+		};
+		let seen = false;
+		for (let look = 0; look < 60 && !seen; look++) {
+			await settle(25);
+			seen = fallen();
+		}
+		expect(seen).toBe(true);
+		// the screen moves down a line at a time, gliding, with smooth scroll on for the whole rain
+		expect(app.output.join("")).toContain("\x1b[?4h");
+		expect(app.output.slice(before).join("")).toContain("\x1bM");
 		await app.type("x");
 		expect(app.emulator.text(2)).toContain("VT420");
 		await waitForIdle(harness);
@@ -409,7 +416,8 @@ describe("vt420 app", () => {
 		expect(lit()).toBe("π");
 		expect(where()).not.toBe(first);
 		// it glides down with the screen rather than being written a line further each time
-		expect(app.output.slice(before).join("")).toContain("\x1b[?4h");
+		expect(app.output.join("")).toContain("\x1b[?4h");
+		expect(app.output.slice(before).join("")).toContain("\x1bM");
 		await app.type("x");
 		await waitForIdle(harness);
 		await app.key("ctrl+d");

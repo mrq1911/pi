@@ -22,7 +22,7 @@ export function isSaverMode(value: string): value is SaverMode {
 }
 
 /** How often the rain may fall a line; the terminal's answers hold it back to the pace it can glide. */
-export const RAIN_STEP_MS = 80;
+export const RAIN_STEP_MS = 25;
 /** Glints racing down the streams at once, at most, unless the line speed says otherwise; each rewrites two cells a line. */
 const GLINTS_MAX = 8;
 /** Chance a free glint starts on a stream each line: every time, so as many race as may. */
@@ -62,7 +62,9 @@ export class MatrixRain {
 	private soloAge = Number.POSITIVE_INFINITY;
 	private soloLength = 0;
 	/** Bright cells running down their streams a row faster than the rain, so streams seem to overtake each other. */
-	private glints: Array<{ row: number; col: number }> = [];
+	private glints: Array<{ row: number; col: number; odd: boolean }> = [];
+	/** Lines fallen in all; glints race on every other one, half of them on each, which halves what they cost. */
+	private line = 0;
 	/** Lines fallen since the screen was last drawn. */
 	private fallen = 0;
 
@@ -158,16 +160,20 @@ export class MatrixRain {
 	/** Every glint moved down with the screen; each takes one more row down its stream, or fades at its end. */
 	private race(): void {
 		const cell = (row: number, col: number): number => this.grid[row]?.[col] ?? BLANK;
-		this.glints = this.glints.flatMap(({ row, col }) => {
-			const here = row + 1;
-			const next = here + 1;
+		this.line++;
+		const odd = this.line % 2 === 1;
+		this.glints = this.glints.flatMap((glint) => {
+			const here = glint.row + 1;
 			if (here >= this.rows) return [];
-			const ahead = cell(next, col);
-			this.grid[here]![col] = cell(here, col) & ~ATTR_BOLD;
+			// the other half rides the rain this line
+			if (glint.odd !== odd) return [{ ...glint, row: here }];
+			const next = here + 1;
+			const ahead = cell(next, glint.col);
+			this.grid[here]![glint.col] = cell(here, glint.col) & ~ATTR_BOLD;
 			// at a gap, the bottom or a stream's own bright head, the glint is done
 			if (next >= this.rows || isSpace(ahead) || ahead & ATTR_BOLD) return [];
-			this.grid[next]![col] = ahead | ATTR_BOLD;
-			return [{ row: next, col }];
+			this.grid[next]![glint.col] = ahead | ATTR_BOLD;
+			return [{ ...glint, row: next }];
 		});
 		// a glint lives only until its stream's next gap, so every line fills the free ones from streams just coming in
 		const free = [];
@@ -179,7 +185,12 @@ export class MatrixRain {
 			const col = free.splice(Math.floor(this.random() * free.length), 1)[0]!;
 			if (this.random() >= GLINT_CHANCE) continue;
 			this.grid[1]![col] = cell(1, col) | ATTR_BOLD;
-			this.glints.push({ row: 1, col });
+			// alternate, so as many race on odd lines as on even ones
+			this.glints.push({
+				row: 1,
+				col,
+				odd: this.glints.filter((glint) => glint.odd).length * 2 < this.glints.length,
+			});
 		}
 	}
 

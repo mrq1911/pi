@@ -52,7 +52,7 @@ describe("vt420 screen saver", () => {
 		expect(rain.lines().filter((line) => line.cells[0] !== 0x20).length).toBeLessThanOrEqual(1);
 	});
 
-	it("runs bright glints down the streams a row faster than the rain, so streams seem to overtake", () => {
+	it("runs bright glints down the streams faster than the rain, so streams seem to overtake", () => {
 		const rain = new MatrixRain(12, 2, { random: () => 0 });
 		rain.feed(charset.cells("abcdefghijkl"));
 		const bright = (): number[] => rain.lines().flatMap((line, row) => (line.cells[0]! & ATTR_BOLD ? [row] : []));
@@ -60,10 +60,12 @@ describe("vt420 screen saver", () => {
 		// the drop's own bright head at the bottom of what has entered, and a glint running ahead of the rain above it
 		const before = bright();
 		rain.step();
+		rain.step();
 		const after = bright();
 		expect(after.length).toBeGreaterThan(1);
+		// a glint races every other line: three rows in two, one ahead of the rain
 		const glintBefore = Math.min(...before);
-		expect(after).toContain(glintBefore + 2);
+		expect(after).toContain(glintBefore + 3);
 	});
 
 	it("keeps a line inside the screen wherever it is put", () => {

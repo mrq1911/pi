@@ -2435,8 +2435,12 @@ export class Vt420App {
 		const parts = this.renderer.renderParts(this.compose());
 		if (parts.length > 0 && !this.syncRequest) this.io.write(parts.join(""));
 		else if (parts.length > 0) {
-			// an emulator takes a whole frame at once
-			this.outbox = this.io.caps.unicode ? [parts.join("")] : chunks(parts, SYNC_CHUNK);
+			// an emulator takes a whole frame at once; a DEC terminal gets the scroll by itself first, so the next glide
+			// waits in the terminal while it still draws the frame before
+			const head = this.renderer.scrollEnd;
+			this.outbox = this.io.caps.unicode
+				? [parts.join("")]
+				: [...(head > 0 ? [parts.slice(0, head).join("")] : []), ...chunks(parts.slice(head), SYNC_CHUNK)];
 			this.pump();
 		}
 		this.lastFrameAt = Date.now();
@@ -2605,6 +2609,9 @@ export class Vt420App {
 			this.rainSeen = Math.max(0, generatedText(this.streamingMessage()).length - 240);
 			this.feedRain(this.streamingMessage());
 			this.rainTimer = setInterval(() => this.rainTick(), RAIN_STEP_MS);
+			// smooth scroll stays on while it rains, which spares ten bytes a line switching it around every glide
+			if (!this.io.caps.smoothScroll) this.io.write("\x1b[?4h");
+			this.renderer.setSmoothScroll(true);
 		}
 		this.moveSaver();
 		if (mode === "progress" || mode === "matrix")
@@ -2623,6 +2630,11 @@ export class Vt420App {
 		this.saverMoveTimer = undefined;
 		clearInterval(this.rainTimer);
 		this.rainTimer = undefined;
+		if (this.rain) {
+			// back to how Set-Up had it
+			if (!this.io.caps.smoothScroll) this.io.write("\x1b[?4l");
+			this.renderer.setSmoothScroll(this.io.caps.smoothScroll === true);
+		}
 		this.rain = undefined;
 		if (this.io.caps.screenReverse) this.io.write("\x1b[?5h");
 		this.armSaver();

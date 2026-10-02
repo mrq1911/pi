@@ -135,6 +135,11 @@ export class Renderer {
 	private gl = -1;
 	private region: { top: number; bottom: number } | undefined;
 	private cursorVisible: boolean | undefined;
+	/**
+	 * How many of the last frame's pieces lead up to and include its hardware scroll, 0 when it did not scroll; sent on
+	 * their own, a scroll can wait in the terminal while it still draws the frame before.
+	 */
+	scrollEnd = 0;
 
 	constructor(options: RendererOptions) {
 		this.options = options;
@@ -168,6 +173,11 @@ export class Renderer {
 		this.valid = false;
 	}
 
+	/** The terminal now scrolls smoothly, or not, without a switch around every glide. */
+	setSmoothScroll(smooth: boolean): void {
+		this.options = { ...this.options, smoothScroll: smooth };
+	}
+
 	render(desired: Frame): string {
 		return this.renderParts(desired).join("");
 	}
@@ -180,7 +190,9 @@ export class Renderer {
 		this.setRegion(frame.scroll);
 		// before the transcript scroll, which would otherwise take a rolled line for the whole region moving
 		this.roll(frame);
+		const beforeScroll = this.out.length;
 		this.hardwareScroll(frame);
+		this.scrollEnd = this.out.length > beforeScroll ? this.out.length : 0;
 		for (let row = 0; row < this.options.rows; row++) {
 			this.diffLine(row, frame.lines[row] ?? { cells: [], attr: LINE_SINGLE });
 		}
@@ -190,6 +202,7 @@ export class Renderer {
 		if (body.reduce((length, part) => length + part.length, 0) > HIDE_CURSOR_OVER && this.cursorVisible !== false) {
 			body.unshift("\x1b[?25l");
 			this.cursorVisible = false;
+			if (this.scrollEnd > 0) this.scrollEnd++;
 		}
 		if (frame.cursor) {
 			this.moveTo(frame.cursor.row, frame.cursor.col);
