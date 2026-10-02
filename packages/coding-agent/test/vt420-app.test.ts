@@ -22,6 +22,8 @@ interface Running {
 	output: string[];
 	/** Frame requests sent and answered, and the most unanswered at once. */
 	line: { requests: number; answers: number; mostAhead: number };
+	/** Entries the app asked the runtime to fork from. */
+	forks: string[];
 	done: Promise<void>;
 	input(event: InputEvent): void;
 	key(key: string): Promise<void>;
@@ -62,6 +64,7 @@ async function start(
 		...caps,
 	};
 	const counts = { requests: 0, answers: 0, mostAhead: 0 };
+	const forks: string[] = [];
 	let respond: ((response: TerminalResponse) => void) | undefined;
 	const answers = new InputParser({
 		onEvent: (event) => {
@@ -119,7 +122,10 @@ async function start(
 		cwd: harness.tempDir,
 		newSession: async () => ({ cancelled: false }),
 		switchSession: async () => ({ cancelled: false }),
-		fork: async () => ({ cancelled: false }),
+		fork: async (entryId) => {
+			forks.push(entryId);
+			return { cancelled: false, selectedText: "picked again" };
+		},
 		importFromJsonl: async () => ({ cancelled: false }),
 		services: { agentDir: harness.tempDir },
 		setRebindSession: () => {},
@@ -143,6 +149,7 @@ async function start(
 		emulator,
 		output,
 		line: counts,
+		forks,
 		done,
 		input: (event) => listener?.(event),
 		key: (key) => send({ type: "key", key }),
@@ -395,6 +402,38 @@ describe("vt420 app", () => {
 		expect(app.output.slice(before).join("")).toContain("\x1b[?4h");
 		await app.type("x");
 		await waitForIdle(harness);
+		await app.key("ctrl+d");
+		await app.done;
+	});
+
+	it("moves to an earlier point with /tree and forks from a message with /fork", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage("answer one"), fauxAssistantMessage("answer two")]);
+		const app = await start(harness);
+		await app.submit("first question");
+		await waitForIdle(harness);
+		await app.submit("second question");
+		await waitForIdle(harness);
+		expect(app.screen()).toContain("answer two");
+		await app.submit("/tree");
+		expect(app.screen()).toContain("Session tree");
+		await app.type("second question");
+		await app.key("return");
+		expect(app.screen()).toContain("Summarize the branch you leave?");
+		await app.key("return");
+		await settle(200);
+		// back before the second question, which is in the editor again
+		expect(app.screen()).not.toContain("answer two");
+		expect(app.screen()).toContain("π second question");
+		await app.key("ctrl+c");
+		await app.submit("/fork");
+		expect(app.screen()).toContain("Fork from message");
+		await app.key("return");
+		await settle(100);
+		expect(app.forks).toHaveLength(1);
+		expect(app.screen()).toContain("π picked again");
+		await app.key("ctrl+c");
 		await app.key("ctrl+d");
 		await app.done;
 	});

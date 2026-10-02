@@ -120,7 +120,8 @@ the LK401's F14 to F20, Help and Do on, count as those keys. Every binding can b
 
 ## Commands
 
-`/help` (or `/hotkeys`), `/model [name]`, `/thinking [level]`, `/new`, `/resume`, `/clone`, `/import <file.jsonl>`,
+`/help` (or `/hotkeys`), `/model [name]`, `/thinking [level]`, `/new`, `/resume`, `/tree`, `/fork`, `/clone`,
+`/import <file.jsonl>`,
 `/compact [focus]`, `/session`, `/name [name]`, `/login [provider]`, `/logout [provider]`, `/trust`, `/copy`,
 `/export [path]` (HTML, or JSONL for a `.jsonl` path), `/changelog`, `/reload`, `/charset`, `/redraw`,
 `/screensaver [off|blank|progress|matrix] [minutes]`, `/quit`. `/copy` uses OSC 52 on an emulator and the desktop
@@ -140,4 +141,4 @@ reads keys or pasted codes from the keyboard.
 
 ## Not included
 
-Extensions, themes, images, mouse, session tree navigation and forking. Use `pi` for those; the sessions are shared.
+Extensions, themes, images and mouse. Use `pi` for those; the sessions are shared.

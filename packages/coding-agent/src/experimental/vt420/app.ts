@@ -46,6 +46,7 @@ import {
 	type TranscriptBlock,
 	tildePath,
 } from "./transcript.ts";
+import { treeRows } from "./tree.ts";
 import {
 	type CommandInfo,
 	formatRate,
@@ -147,6 +148,8 @@ export const COMMANDS: readonly CommandInfo[] = [
 	{ name: "session", description: "tokens, speed and context" },
 	{ name: "name", args: "[name]", description: "name this session, or show its name" },
 	{ name: "clone", description: "copy this session as it stands into a new one" },
+	{ name: "fork", description: "a new session from before one of your messages" },
+	{ name: "tree", description: "move to another point of the session tree" },
 	{ name: "import", args: "<path.jsonl>", description: "replace the session with an exported one" },
 	{ name: "login", args: "[provider]", description: "sign in to a provider" },
 	{ name: "logout", args: "[provider]", description: "remove stored credentials" },
@@ -260,6 +263,7 @@ export class Vt420App {
 	private bashRunning = false;
 	private retry: { attempt: number; max: number; until: number } | undefined;
 	private compacting: string | undefined;
+	private summarizing = false;
 	private queued = 0;
 	private flashText: { text: string; until: number } | undefined;
 	private footer: FooterStats = { input: 0, output: 0, cacheRead: 0, contextTokens: null, contextWindow: 0 };
@@ -957,6 +961,12 @@ export class Vt420App {
 			case "import":
 				void this.importSession(args);
 				return true;
+			case "fork":
+				this.showFork();
+				return true;
+			case "tree":
+				this.showTree();
+				return true;
 			case "clone": {
 				const leaf = session.sessionManager.getLeafId();
 				if (!leaf) this.flash("Nothing to clone yet");
@@ -1528,6 +1538,134 @@ export class Vt420App {
 		);
 	}
 
+	/** `/fork`: a new session from before one of your messages, whose text comes back into the editor. */
+	private showFork(): void {
+		const messages = this.session.getUserMessagesForForking();
+		if (messages.length === 0) {
+			this.flash("No messages to fork from");
+			return;
+		}
+		const items = messages.map((message, index) => ({
+			value: message.entryId,
+			label: message.text.replace(/\s+/g, " ").trim(),
+			detail: `${index + 1}/${messages.length}`,
+		}));
+		this.openSelector(
+			"Fork from message",
+			items,
+			(item) => {
+				this.runtime
+					.fork(item.value)
+					.then((result) => {
+						if (result.cancelled) return;
+						this.editor.setText(result.selectedText ?? "");
+						this.flash("Forked to a new session");
+					})
+					.catch((error: unknown) => this.notice("error", errorMessage(error)));
+			},
+			undefined,
+			items.length - 1,
+		);
+	}
+
+	/** `/tree`: the session's tree, opened where it stands, to move to another point of it. */
+	private showTree(selectedId?: string): void {
+		const manager = this.session.sessionManager;
+		const leaf = manager.getLeafId();
+		const rows = treeRows(manager.getTree(), leaf);
+		if (rows.length === 0) {
+			this.flash("No entries in session");
+			return;
+		}
+		const dot = this.charset.pick("•", "*");
+		const items = rows.map((row) => ({
+			value: row.id,
+			label: `${row.prefix}${row.onPath ? `${dot} ` : ""}${row.label ? `[${row.label}] ` : ""}${row.text}`,
+		}));
+		const target = selectedId ?? leaf;
+		const at = rows.findIndex((row) => row.id === target);
+		const selected = at >= 0 ? at : rows.findLastIndex((row) => row.onPath);
+		this.openSelector("Session tree", items, (item) => void this.navigateTo(item.value), undefined, selected);
+	}
+
+	/** Move to `entryId`, summarizing the branch left behind when asked; a user message comes back into the editor. */
+	private async navigateTo(entryId: string): Promise<void> {
+		const session = this.session;
+		if (entryId === session.sessionManager.getLeafId()) {
+			this.flash("Already at this point");
+			return;
+		}
+		let summarize = false;
+		let customInstructions: string | undefined;
+		if (!session.settingsManager.getBranchSummarySkipPrompt()) {
+			for (;;) {
+				const choice = await this.choose("Summarize the branch you leave?", [
+					"No summary",
+					"Summarize",
+					"Summarize with custom prompt",
+				]);
+				if (choice === undefined) {
+					this.showTree(entryId);
+					return;
+				}
+				summarize = choice !== "No summary";
+				if (choice !== "Summarize with custom prompt") break;
+				customInstructions = await this.ask("Custom summarization instructions:");
+				if (customInstructions !== undefined) break;
+			}
+		}
+		if (session.isStreaming) await session.abort();
+		if (session.isCompacting) {
+			this.notice("error", "Wait for the current compaction or tree navigation to finish first");
+			return;
+		}
+		this.summarizing = summarize;
+		this.requestRender();
+		try {
+			const result = await session.navigateTree(entryId, { summarize, customInstructions });
+			if (result.aborted) {
+				this.flash("Branch summarization cancelled");
+				this.showTree(entryId);
+				return;
+			}
+			if (result.cancelled) {
+				this.flash("Navigation cancelled");
+				return;
+			}
+			this.rebuildTranscript();
+			this.refreshFooter();
+			if (result.editorText && this.editor.empty) this.editor.setText(result.editorText);
+			this.flash("Navigated to the selected point");
+		} catch (error) {
+			this.notice("error", errorMessage(error));
+		} finally {
+			this.summarizing = false;
+			this.requestRender();
+		}
+	}
+
+	/** One of `options` from the selector; undefined when cancelled. */
+	private choose(title: string, options: readonly string[]): Promise<string | undefined> {
+		return new Promise((resolve) => {
+			this.openSelector(
+				title,
+				options.map((option) => ({ value: option, label: option })),
+				(item) => resolve(item.value),
+				() => resolve(undefined),
+			);
+		});
+	}
+
+	/** A line of text from the prompt; undefined when cancelled. */
+	private ask(message: string, initial = ""): Promise<string | undefined> {
+		return new Promise((resolve) => {
+			const editor = new LineEditor();
+			if (initial) editor.setText(initial);
+			this.mode = { kind: "prompt", message, editor, resolve, reject: () => resolve(undefined) };
+			this.requestRender();
+		});
+	}
+
 	/** Yes or no, from the selector; cancelling is no. */
 	private confirm(title: string): Promise<boolean> {
 		return new Promise((resolve) => {
@@ -1708,6 +1846,7 @@ export class Vt420App {
 			this.working ||
 			this.bashRunning ||
 			this.compacting !== undefined ||
+			this.summarizing ||
 			this.retry !== undefined ||
 			this.flashText !== undefined ||
 			this.transcript.animated
@@ -1972,6 +2111,7 @@ export class Vt420App {
 			return `Retry ${this.retry.attempt}/${this.retry.max} in ${formatDuration(seconds)} · ${interrupt} stop`;
 		}
 		if (this.compacting) return `Compacting ${spinner} · ${interrupt} stop`;
+		if (this.summarizing) return `Summarizing branch ${spinner} · ${interrupt} stop`;
 		if (this.working) {
 			const seconds = Math.floor((now - this.workingSince) / 1000);
 			return `Working ${spinner}${seconds > 0 ? ` ${formatDuration(seconds)}` : ""} · ${interrupt} stop`;
