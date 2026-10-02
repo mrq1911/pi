@@ -150,6 +150,11 @@ export class MatrixRain {
 		this.race();
 	}
 
+	/** Lines fallen that the screen has not shown yet. */
+	get undrawn(): number {
+		return this.fallen;
+	}
+
 	/** Lines fallen since the last call, for the renderer to scroll in hardware. */
 	takeFallen(): number {
 		const fallen = this.fallen;

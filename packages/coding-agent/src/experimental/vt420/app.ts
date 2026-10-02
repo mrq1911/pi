@@ -2657,7 +2657,8 @@ export class Vt420App {
 	 */
 	private rainTick(): void {
 		const rain = this.rain;
-		if (!rain || this.outbox.length > 0 || !this.roomOnLine()) return;
+		// one line a frame: lines fallen faster than frames go out would scroll several at once, which jumps
+		if (!rain || rain.undrawn > 0 || this.outbox.length > 0 || !this.roomOnLine()) return;
 		const busy = this.saverBusy();
 		if (!rain.raining && !busy && !rain.active) return;
 		rain.step(busy ? this.charset.cells("π") : undefined);
