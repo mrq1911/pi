@@ -22,6 +22,7 @@ import {
 	generatedText,
 	isSaverMode,
 	MatrixRain,
+	RAIN_IDLE_STEP_MS,
 	RAIN_STEP_MS,
 	SAVER_MINUTES,
 	SAVER_MOVE_MS,
@@ -258,6 +259,7 @@ export class Vt420App {
 	private rainTimer: ReturnType<typeof setInterval> | undefined;
 	/** How much of the streaming message has gone into the rain. */
 	private rainSeen = 0;
+	private rainStepAt = 0;
 	private lastClearAt = 0;
 	private loginController: AbortController | undefined;
 	private closed = false;
@@ -1491,7 +1493,7 @@ export class Vt420App {
 
 	private compose(): Frame {
 		const { rows, columns, statusLine } = this.io.caps;
-		if (this.saving === "matrix" && this.rain?.active) {
+		if (this.saving === "matrix" && this.rain && (this.rain.active || this.saverCounter())) {
 			const status = statusLine ? [] : undefined;
 			return { lines: this.rain.lines(), status, scroll: { top: 0, bottom: rows - 1 }, smooth: true };
 		}
@@ -1538,8 +1540,12 @@ export class Vt420App {
 		// a light screen would stay lit
 		if (this.io.caps.screenReverse) this.io.write("\x1b[?5l");
 		if (mode === "matrix") {
-			const { rows, columns } = this.io.caps;
-			this.rain = new MatrixRain(rows, columns);
+			const { rows, columns, bytesPerSecond } = this.io.caps;
+			// a row the line can send while the terminal glides the last: about 12 drops at 19200 baud
+			const budget = Math.round((bytesPerSecond ?? 1920) / 160);
+			this.rain = new MatrixRain(rows, columns, {
+				maxDrops: Math.max(6, Math.min(Math.floor(columns / 4), budget)),
+			});
 			// a message streaming now starts the rain from a little way back
 			this.rainSeen = Math.max(0, generatedText(this.streamingMessage()).length - 240);
 			this.feedRain(this.streamingMessage());
@@ -1578,14 +1584,30 @@ export class Vt420App {
 		this.rainSeen = text.length;
 	}
 
-	/** The rain falls a line once the terminal has drawn the last, so every line glides on its own. */
+	/**
+	 * The rain falls a line while the terminal still glides the last, so one scroll follows another without a pause.
+	 * Working with no words to rain, a lone π falls with the counter, slower; once all is done the rain drains off
+	 * and the π line comes back.
+	 */
 	private rainTick(): void {
-		if (!this.rain || this.outbox.length > 0 || this.unanswered.length > 0) return;
-		if (!this.rain.active) return;
-		this.rain.step();
-		// the last drops gone, the progress line comes back
-		if (!this.rain.active) this.moveSaver();
+		const rain = this.rain;
+		if (!rain || this.outbox.length > 0 || this.unanswered.length >= SYNC_WINDOW) return;
+		const counter = this.saverCounter();
+		if (!rain.raining && !counter && !rain.active) return;
+		if (!rain.raining && counter && Date.now() - this.rainStepAt < RAIN_IDLE_STEP_MS) return;
+		rain.step(counter ? this.charset.cells(`${counter}π`) : undefined);
+		this.rainStepAt = Date.now();
+		if (!rain.active && !counter) this.moveSaver();
 		this.requestRender();
+	}
+
+	/** What follows the falling π: how long the work has run, or what it waits for; nothing once all is done. */
+	private saverCounter(): string {
+		if (this.mode.kind === "prompt" || this.mode.kind === "selector") return "waiting";
+		if (this.retry) return `retry${formatDuration(Math.max(0, this.retry.until - Date.now()) / 1000)}`;
+		if (this.compacting) return "compacting";
+		if (this.working) return formatDuration((Date.now() - this.workingSince) / 1000).replace(/ /g, "");
+		return "";
 	}
 
 	private streamingMessage(): AssistantMessage | undefined {

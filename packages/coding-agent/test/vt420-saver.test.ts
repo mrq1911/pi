@@ -38,6 +38,20 @@ describe("vt420 screen saver", () => {
 		expect(rain.active).toBe(false);
 	});
 
+	it("lets a lone drop fall when there are no words, one at a time", () => {
+		const rain = new MatrixRain(6, 3, { random: () => 0 });
+		const solo = charset.cells("12sπ");
+		for (let step = 0; step < 4; step++) rain.step(solo);
+		expect(rain.raining).toBe(false);
+		const rows = rain.lines();
+		// read top to bottom, led by its last cell, the bright one
+		expect(rows[3]!.cells[0]! & ATTR_BOLD).toBe(ATTR_BOLD);
+		expect(rows.slice(0, 4).map((line) => line.cells[0])).toEqual([...solo.slice(0, 3), solo[3]! | ATTR_BOLD]);
+		// the next one waits until this one has fallen off the screen
+		for (let step = 0; step < 6; step++) rain.step(solo);
+		expect(rain.lines().filter((line) => line.cells[0] !== 0x20).length).toBeLessThanOrEqual(1);
+	});
+
 	it("keeps a line inside the screen wherever it is put", () => {
 		const frame = saverFrame(
 			4,

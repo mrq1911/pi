@@ -348,6 +348,36 @@ describe("vt420 app", () => {
 		await app.done;
 	});
 
+	it("lets π fall with how long the work has run while a tool works and there is nothing to rain", async () => {
+		const slow: AgentTool = {
+			name: "slow",
+			label: "slow",
+			description: "Take a while",
+			parameters: Type.Object({}),
+			execute: async () => {
+				await settle(2000);
+				return { content: [{ type: "text", text: "done" }], details: {} };
+			},
+		};
+		const harness = await createHarness({ tools: [slow] });
+		harnesses.push(harness);
+		const app = await start(harness);
+		await app.submit("/screensaver matrix");
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("slow", {})], { stopReason: "toolUse" }),
+			fauxAssistantMessage("ok"),
+		]);
+		void harness.session.prompt("wait");
+		await settle(1400);
+		const rows = app.emulator.screen();
+		const columns = Array.from({ length: 80 }, (_, col) => rows.map((row) => row[col] ?? " ").join(""));
+		expect(columns.some((text) => /\dsπ/.test(text))).toBe(true);
+		await app.type("x");
+		await waitForIdle(harness);
+		await app.key("ctrl+d");
+		await app.done;
+	});
+
 	it("letter-spaces the banner and keeps headings at normal size without double-size lines", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);

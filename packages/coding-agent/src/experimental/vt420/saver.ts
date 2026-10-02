@@ -1,8 +1,9 @@
 /**
  * The screen saver. A CRT left on one picture for hours keeps it in the phosphor, and a model can work that long, so
  * after a spell without keys the screen goes dark: "blank" leaves it so, "progress" shows one short line of how the
- * work goes, in another place every half minute, and "matrix" rains down what the model generates, with the progress
- * line between its words. Any key brings the screen back and does nothing else.
+ * work goes, in another place every half minute, and "matrix" rains down what the model generates, a lone π falling
+ * with how long the work has run while there is nothing to rain, and the π line once all is done. Any key brings the
+ * screen back and does nothing else.
  */
 
 import type { AssistantMessage } from "@earendil-works/pi-ai";
@@ -20,8 +21,10 @@ export function isSaverMode(value: string): value is SaverMode {
 	return value === "off" || value === "blank" || value === "progress" || value === "matrix";
 }
 
-/** How often the rain may fall a line; it waits for the terminal to have drawn the last one. */
+/** How often the rain may fall a line; the terminal's answers hold it back to the pace it can glide. */
 export const RAIN_STEP_MS = 80;
+/** How often a lone π falls a line when there is nothing to rain. */
+export const RAIN_IDLE_STEP_MS = 250;
 /** Characters waiting to fall, at most; a model faster than the rain loses its oldest. */
 const RAIN_BACKLOG = 2000;
 /** Longest word one drop carries. */
@@ -49,9 +52,12 @@ export class MatrixRain {
 	private readonly random: () => number;
 	private readonly maxDrops: number;
 	private readonly grid: number[][];
-	private readonly drops: Array<{ cells: number[]; bright: boolean } | undefined>;
+	private readonly drops: Array<{ cells: number[]; bright: boolean; solo: boolean } | undefined>;
 	private readonly gaps: number[];
 	private queue: number[] = [];
+	/** Lines fallen since the lone drop started, and its length: it is off the screen once both pass the bottom. */
+	private soloAge = Number.POSITIVE_INFINITY;
+	private soloLength = 0;
 
 	constructor(rows: number, columns: number, options: { random?: () => number; maxDrops?: number } = {}) {
 		this.rows = rows;
@@ -73,18 +79,31 @@ export class MatrixRain {
 		if (this.queue.length > RAIN_BACKLOG) this.queue.splice(0, this.queue.length - RAIN_BACKLOG);
 	}
 
-	/** Words still waiting, or rain still on the screen. */
-	get active(): boolean {
-		return (
-			this.queue.length > 0 ||
-			this.drops.some((drop) => drop !== undefined) ||
-			this.grid.some((row) => row.some((cell) => cell !== BLANK))
-		);
+	/** Words waiting or falling into the screen. */
+	get raining(): boolean {
+		return this.queue.length > 0 || this.drops.some((drop) => drop !== undefined && !drop.solo);
 	}
 
-	/** The screen moves down a line and the drops write the new top row. */
-	step(): void {
+	/** Anything left on the screen or still to come. */
+	get active(): boolean {
+		return this.raining || this.drops.some(Boolean) || this.grid.some((row) => row.some((cell) => cell !== BLANK));
+	}
+
+	/**
+	 * The screen moves down a line and the drops write the new top row. With no words to rain, `solo`, read top to
+	 * bottom, falls on its own, one at a time, led by its last cell.
+	 */
+	step(solo?: readonly number[]): void {
 		const top = new Array<number>(this.columns).fill(BLANK);
+		this.soloAge++;
+		if (solo && solo.length > 0 && !this.raining && this.soloAge > this.rows + this.soloLength) {
+			const col = Math.floor(this.random() * this.columns);
+			if (!this.drops[col]) {
+				this.drops[col] = { cells: [...solo].reverse(), bright: true, solo: true };
+				this.soloAge = 0;
+				this.soloLength = solo.length;
+			}
+		}
 		let falling = this.drops.filter((drop) => drop !== undefined).length;
 		// heavier as the backlog grows
 		const chance = Math.min(0.5, 0.04 + this.queue.length / 400);
@@ -98,7 +117,7 @@ export class MatrixRain {
 				if (falling >= this.maxDrops || this.queue.length === 0 || this.random() >= chance) continue;
 				const word = this.nextWord();
 				if (word.length === 0) continue;
-				drop = { cells: word.reverse(), bright: true };
+				drop = { cells: word.reverse(), bright: true, solo: false };
 				this.drops[col] = drop;
 				falling++;
 			}
