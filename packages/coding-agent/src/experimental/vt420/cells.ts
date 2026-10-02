@@ -37,6 +37,8 @@ export type LineAttr =
 export interface Line {
 	cells: number[];
 	attr: LineAttr;
+	/** Line `line` of rolling text `id`; the renderer scrolls a pair of them up when the text moves on a line. */
+	roll?: { id: string; line: number };
 }
 
 export function glyph(set: number, code: number): number {

@@ -3,7 +3,7 @@
  *
  * Defaults follow the LK401 legends DEC printed on the function-key strip: F6 Interrupt, F7 Resume,
  * F8 Cancel, F9 Main Screen, F10 Exit, F11 ESC, F12 BS, F13 LF, F14 Additional Options, Help and Do.
- * PF1-PF4 carry the frequent toggles. Emacs-style control keys work as well.
+ * PF1-PF4 carry the frequent toggles. Emacs-style control keys work as well, and F5 is Do on keyboards without one.
  */
 
 export interface Vt420KeyBinding {
@@ -33,7 +33,7 @@ export const VT420_KEYBINDINGS = {
 	"app.interrupt": { keys: ["f6", "f11", "escape"], description: "Interrupt / close" },
 	"app.clear": { keys: ["ctrl+c", "f8"], description: "Cancel input" },
 	"app.exit": { keys: ["ctrl+d", "f10"], description: "Exit (empty input)" },
-	"app.followUp": { keys: ["do"], description: "Queue follow-up" },
+	"app.followUp": { keys: ["do", "f5"], description: "Queue follow-up" },
 	"app.help": { keys: ["help", "shift+help"], description: "Key help" },
 	"app.menu": { keys: ["f14"], description: "Command menu" },
 	"app.resume": { keys: ["f7"], description: "Resume session" },
@@ -52,7 +52,7 @@ export const VT420_KEYBINDINGS = {
 	"select.down": { keys: ["down", "ctrl+n"], description: "Next item" },
 	"select.pageUp": { keys: ["prev"], description: "Previous page" },
 	"select.pageDown": { keys: ["next"], description: "Next page" },
-	"select.confirm": { keys: ["return", "do", "select", "kpenter"], description: "Choose" },
+	"select.confirm": { keys: ["return", "do", "f5", "select", "kpenter"], description: "Choose" },
 	"select.cancel": { keys: ["f11", "escape", "f8", "ctrl+c", "f9", "f6"], description: "Cancel" },
 } as const satisfies Record<string, Vt420KeyBinding>;
 

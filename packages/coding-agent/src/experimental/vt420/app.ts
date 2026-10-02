@@ -1391,6 +1391,8 @@ export class Vt420App {
 			cwd: this.runtime.cwd,
 			home: homedir(),
 			showThinking: this.showThinking,
+			// emulators do not scroll smoothly, so there the live thinking ticks along one line
+			rollThinking: !this.io.caps.unicode,
 			expandTools: this.expandTools,
 			// letter-spaced headings read badly, so without double size they stay at normal size
 			largeHeadings: (this.options.largeHeadings ?? true) && this.io.caps.doubleSize !== false,

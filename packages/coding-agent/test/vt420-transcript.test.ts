@@ -86,6 +86,41 @@ describe("vt420 transcript thinking", () => {
 		expect(expanded.length).toBeGreaterThan(3);
 	});
 
+	it("rolls live thinking up two rows on a DEC terminal, a smooth scroll for each line it fills", () => {
+		const rolling = { ...context(), rollThinking: true };
+		expect(linesText(thinkingBlock("", true).render(rolling))).toEqual(["∴ thinking", ""]);
+		const renderer = new Renderer({
+			rows: 4,
+			columns: WIDTH,
+			statusLine: false,
+			rectangularOps: true,
+			eraseCharacters: true,
+			eightBit: false,
+		});
+		const emulator = new Vt420Emulator({ rows: 4, columns: WIDTH });
+		emulator.feed(SESSION_MODES + charsetDesignations({ technical: true, supplemental: "dec", eightBit: false }));
+		const words = `${THINKING} and then the renderer, and the emulator after it`.split(" ");
+		let rolls = 0;
+		for (let count = 1; count <= words.length; count++) {
+			const lines = thinkingBlock(words.slice(0, count).join(" "), true).render(rolling);
+			expect(lines).toHaveLength(2);
+			const above = { cells: charset.cells("above"), attr: LINE_SINGLE } as const;
+			const frame: Frame = {
+				lines: [above, ...lines, { cells: [], attr: LINE_SINGLE }],
+				scroll: { top: 0, bottom: 3 },
+			};
+			const bytes = renderer.render(frame);
+			if (bytes.includes("\x1b[?4h\x1bD\x1b[?4l")) rolls++;
+			emulator.feed(Buffer.from(bytes, "latin1"));
+			expect([emulator.text(0), emulator.text(1), emulator.text(2)]).toEqual(["above", ...linesText(lines)]);
+		}
+		expect(rolls).toBeGreaterThan(1);
+		// once done it settles on one line, as on emulators
+		expect(linesText(thinkingBlock(THINKING, false).render(rolling))).toEqual(
+			linesText(thinkingBlock(THINKING, false).render(context())),
+		);
+	});
+
 	it("scrolls the ticker in the terminal with a few bytes per update", () => {
 		const words = THINKING.split(" ");
 		const send = (eraseCharacters: boolean): number => {

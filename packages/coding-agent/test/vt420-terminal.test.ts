@@ -74,6 +74,24 @@ describe("vt420 terminal probe", () => {
 	it("detects a UTF-8 terminal from the cursor advance of a two-byte character", () => {
 		const utf8 = capabilitiesFromProbe(probe({ rows: 24, columns: 80, utf8: true }), AUTO, {}, undefined);
 		expect(utf8).toMatchObject({ unicode: true, technical: true, supplemental: "latin1", rows: 24, columns: 80 });
+		// whatever DEC terminal an emulator claims to be, it is named as one and does what a VT220 does
+		const xtermJs = emptyProbe();
+		Object.assign(xtermJs, { da1: [1, 2], da2: [0, 276, 0], utf8Column: 2 });
+		expect(capabilitiesFromProbe(xtermJs, AUTO, {}, undefined)).toMatchObject({
+			name: "terminal",
+			level: 2,
+			eraseCharacters: true,
+		});
+		const behind = process.env.VT420_TERM;
+		process.env.VT420_TERM = "VT420";
+		try {
+			expect(capabilitiesFromProbe(xtermJs, AUTO, {}, undefined).name).toBe("VT420 via vt420-term");
+		} finally {
+			if (behind === undefined) delete process.env.VT420_TERM;
+			else process.env.VT420_TERM = behind;
+		}
+		// an emulator that does not answer DA1 keeps level 0, so frames are not paced by it
+		expect(capabilitiesFromProbe({ ...emptyProbe(), utf8Column: 2 }, AUTO, {}, undefined).level).toBe(0);
 		expect(capabilitiesFromProbe(probe({ rows: 24, columns: 80 }), AUTO, {}, undefined).unicode).toBe(false);
 		const forced = capabilitiesFromProbe(
 			probe({ rows: 24, columns: 80, utf8: true }),

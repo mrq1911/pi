@@ -57,13 +57,16 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
 - **Host-writable status line** (DECSSDT/DECSASD) for the footer, right-aligned under the prompt: ↑↓ tokens,
   generation speed in tok/s, ▒ context used/max and the working directory (its last component when long). Model and
   thinking level appear in the banner and in `/session`.
-- **Thinking ticker**: collapsed thinking is one line that scrolls left as tokens arrive, so the latest ones are
-  always in view; once the model moves on, the line settles on how the thinking started. PF3 shows all of it.
+- **Rolling thinking**: collapsed thinking fills two rows as tokens arrive, and each time the lower one is full the
+  terminal smooth-scrolls the pair up a line (DECSCLM for that one scroll, inside its own DECSTBM margins), so the
+  latest tokens are always in view and the text rolls on like paper. Emulators, which do not scroll smoothly, get one
+  line that scrolls left instead. Once the model moves on, it settles on one line with how the thinking started. PF3
+  shows all of it.
 - **Bandwidth**: a diff renderer with relative cursor moves, IND/RI hardware scrolling inside DECSTBM margins, DCH to
-  scroll the thinking ticker in place, ECH and DECFRA for long rules. Each frame ends with a DSR request (DA1 where
-  the terminal ignores DSR), and a frame goes out only while at most one other is unanswered, so the terminal is never
-  more than a frame behind, whatever the line speed, the buffers on the way or the flow control. XON/XOFF stays on, so
-  Hold Screen works.
+  scroll the emulators' thinking ticker in place, ECH and DECFRA for long rules. Each frame ends with a DSR request
+  (DA1 where the terminal ignores DSR), and a frame goes out only while at most one other is unanswered, so the
+  terminal is never more than a frame behind, whatever the line speed, the buffers on the way or the flow control.
+  XON/XOFF stays on, so Hold Screen works.
 - **Probing and restore**: DA1/DA2, DECRQSS, DECRQM, DECRQUPSS, DECRQDE and CPR decide what to use; the modes, status
   line type and designations found at startup are restored on exit.
 - **Emulators**: a terminal that decodes UTF-8 (found by printing é as two bytes and reading the cursor back) gets the
@@ -72,14 +75,17 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
   shows when the cursor, sent far right on a DECDWL line, passes the middle of the screen; there the banner, help
   titles and intro tagline go out letter-spaced in the same place, headings stay at normal size, and the OAuth device
   code stays plain. `--double-size on|off` overrides the detection. Terminals without a status line keep the footer
-  on the bottom row, and ones without rectangle operations do without the shine.
+  on the bottom row, and ones without rectangle operations do without the shine. An emulator is never named after
+  the DEC terminal its DA2 claims (zellij and xterm.js say VT100); under
+  [vt420-term](https://github.com/mrq1911/vt420-term), which sets `VT420_TERM`, the banner names the terminal at the
+  end of the line.
 
 ## Keys
 
 | Key | Action |
 | --- | --- |
 | Return | send; steer while working |
-| Do | queue a follow-up |
+| Do (F5 elsewhere) | queue a follow-up |
 | Ctrl+J | new line |
 | F6 Interrupt, F11 ESC | interrupt, close menus |
 | F8 Cancel, Ctrl+C | clear input; twice to exit |
@@ -92,7 +98,8 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
 | Prev Screen, Next Screen, Find | page the transcript, jump to the top |
 | F12 BS, F13 LF | start of line, delete word (as on VMS) |
 
-Emacs control keys work in the editor. Every binding can be changed in `~/.pi/agent/vt420.json`:
+Emacs control keys work in the editor. xterm's F13 to F20 (Shift with F1 to F8), which is how vt420-term passes
+the LK401's F14 to F20, Help and Do on, count as those keys. Every binding can be changed in `~/.pi/agent/vt420.json`:
 
 ```json
 { "keys": { "app.interrupt": ["f11", "escape"] }, "baud": 19200, "statusLine": "auto" }

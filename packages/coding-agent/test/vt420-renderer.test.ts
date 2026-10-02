@@ -50,6 +50,7 @@ function setup(
 		eightBit,
 		unicode,
 		doubleSize: options.doubleSize,
+		smoothScroll: options.smoothScroll,
 		designations: charsetDesignations({ technical: true, supplemental, eightBit }),
 	});
 	const emulator = new Vt420Emulator({
@@ -239,6 +240,48 @@ describe("vt420 renderer", () => {
 		const back = frameOf(s.charset, [...lines.slice(1, 10), "", "status", "editor"], { scroll: region });
 		expect(s.draw(back)).toContain("\x1bM");
 		expectScreen(s, back);
+	});
+
+	it("rolls two rows of rolling text up with a smooth scroll when the text moves on a line", () => {
+		const roll = (s: Setup, text: string, line: number): Line => ({
+			cells: s.charset.cells(text),
+			attr: LINE_SINGLE,
+			roll: { id: "thinking", line },
+		});
+		const region = { top: 0, bottom: 8 };
+		const s = setup();
+		s.draw(
+			frameOf(s.charset, ["above", roll(s, "∴ the first line of it", 0), roll(s, "  and the sec", 1)], {
+				scroll: region,
+			}),
+		);
+		const next = frameOf(s.charset, ["above", roll(s, "∴ and the second one", 1), roll(s, "  then a th", 2)], {
+			scroll: region,
+		});
+		const bytes = s.draw(next);
+		// the lower row gets the rest of its line, then the pair scrolls smoothly inside its own margins
+		const order = ["ond one", "\x1b[2;3r", "\x1b[?4h\x1bD\x1b[?4l", "\x1b[1;9r", "then a th"].map((part) =>
+			bytes.indexOf(part),
+		);
+		expect(order.every((index) => index >= 0)).toBe(true);
+		expect(order).toEqual([...order].sort((a, b) => a - b));
+		expectScreen(s, next);
+		// two lines on at once is a plain redraw
+		const jump = frameOf(s.charset, ["above", roll(s, "∴ the fourth", 3), roll(s, "  the fifth", 4)], {
+			scroll: region,
+		});
+		expect(s.draw(jump)).not.toContain("\x1bD");
+		expectScreen(s, jump);
+		// a terminal set to smooth scroll anyway needs no mode switch
+		const smooth = setup({ smoothScroll: true });
+		smooth.draw(
+			frameOf(smooth.charset, ["above", roll(smooth, "∴ one", 0), roll(smooth, "  two", 1)], { scroll: region }),
+		);
+		const rolled = smooth.draw(
+			frameOf(smooth.charset, ["above", roll(smooth, "∴ two", 1), roll(smooth, "  three", 2)], { scroll: region }),
+		);
+		expect(rolled).toContain("\x1bD");
+		expect(rolled).not.toContain("?4h");
 	});
 
 	it("letter-spaces double-size lines for a terminal that ignores them", () => {

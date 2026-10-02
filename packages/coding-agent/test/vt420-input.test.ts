@@ -39,7 +39,8 @@ describe("vt420 input", () => {
 			"help",
 			"do",
 		]);
-		expect(keys("\x1b[31~\x1b[34~\x1b[17;2~\x1b[29;2~")).toEqual(["f17", "f20", "shift+f6", "shift+do"]);
+		// Shift with F6 is xterm's F18; a real LK401 sends no modifiers
+		expect(keys("\x1b[31~\x1b[34~\x1b[17;2~\x1b[29;2~")).toEqual(["f17", "f20", "f18", "shift+do"]);
 		expect(keys("\x1bOP\x1bOQ\x1bOR\x1bOS\x1bOM\x1bOp\x1bOy")).toEqual([
 			"pf1",
 			"pf2",
@@ -54,6 +55,22 @@ describe("vt420 input", () => {
 	it("reads arrows in both cursor key modes and xterm modifiers", () => {
 		expect(keys("\x1b[A\x1b[B\x1bOC\x1bOD")).toEqual(["up", "down", "right", "left"]);
 		expect(keys("\x1b[1;5C\x1b[1;2A\x1b[1;3D")).toEqual(["ctrl+right", "shift+up", "alt+left"]);
+	});
+
+	it("reads xterm's F13 to F20, Shift with F1 to F8, as vt420-term sends the LK401's F14 to F20", () => {
+		expect(keys("\x1b[1;2P\x1b[1;2Q\x1b[1;2R\x1b[1;2S\x1b[15;2~\x1b[17;2~\x1b[18;2~\x1b[19;2~")).toEqual([
+			"f13",
+			"f14",
+			"help",
+			"do",
+			"f17",
+			"f18",
+			"f19",
+			"f20",
+		]);
+		expect(keys("\x1b[1;4R\x1b[15;4~\x1b[1;3R\x1b[15~")).toEqual(["alt+help", "alt+f17", "alt+f3", "f5"]);
+		const keymap = new Keymap();
+		expect(keymap.find("f5", ["app.followUp"])).toBe("app.followUp");
 	});
 
 	it("maps C0 controls to keys and coalesces printable text", () => {

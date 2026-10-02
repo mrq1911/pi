@@ -24,6 +24,8 @@ export interface RenderContext {
 	cwd: string;
 	home: string;
 	showThinking: boolean;
+	/** Live thinking rolls up two rows with the terminal's smooth scroll instead of ticking along one. */
+	rollThinking?: boolean;
 	expandTools: boolean;
 	largeHeadings: boolean;
 	tick: number;
@@ -197,7 +199,10 @@ function renderAssistant(message: AssistantMessage, streaming: boolean, context:
 		if (content.type === "thinking") {
 			const thinking = content.thinking.trim();
 			if (!context.showThinking) {
-				out.push(thinkingLine(thinking, streaming && index === message.content.length - 1, context));
+				const live = streaming && index === message.content.length - 1;
+				if (live && context.rollThinking)
+					out.push(...thinkingWindow(thinking, `${message.timestamp}:${index}`, context));
+				else out.push(thinkingLine(thinking, live, context));
 				continue;
 			}
 			const rows = expandTabs(thinking || "thinking")
@@ -246,6 +251,23 @@ function thinkingLine(thinking: string, live: boolean, context: RenderContext): 
 		cells = live ? [...cut, ...cells.slice(cells.length - room + cut.length)] : truncateCells(cells, room, ellipsis);
 	}
 	return { cells: [...prefix, ...cells], attr: LINE_SINGLE };
+}
+
+/**
+ * Live thinking on two rows, the lower one filling as tokens arrive; once it is full the pair moves on a line,
+ * which the renderer turns into a smooth scroll of the two rows. Wrapped from the start, so lines keep their breaks.
+ */
+function thinkingWindow(thinking: string, id: string, context: RenderContext): Line[] {
+	const { charset, width } = context;
+	const marker = charset.pick("∴", "»");
+	const text = charset.cells(flattenThinking(thinking));
+	const lines = text.length === 0 ? [charset.cells("thinking")] : wrapCells(text, Math.max(1, width - 2));
+	const first = Math.max(0, lines.length - 2);
+	return [first, first + 1].map((line, row) => ({
+		cells: [...charset.cells(row === 0 ? `${marker} ` : "  "), ...(lines[line] ?? [])],
+		attr: LINE_SINGLE,
+		roll: { id, line },
+	}));
 }
 
 /** Thinking as one run of text: bold markers dropped, lines joined, paragraphs separated by a dot. */

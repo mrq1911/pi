@@ -3,8 +3,9 @@
  *
  * The renderer keeps a model of what the terminal displays and turns each desired frame into the fewest
  * bytes it can find: relative cursor moves, one-byte locking shifts, single shifts for isolated glyphs,
- * hardware scrolling (IND/RI inside DECSTBM margins) when the transcript moves, DCH when text moves left
- * within a line, EL/ECH for blank runs, and DECFRA for long runs of one glyph. At 19200 baud a full 80x24 repaint costs about a second, so these
+ * hardware scrolling (IND/RI inside DECSTBM margins) when the transcript moves, a smooth scroll (DECSCLM) when
+ * rolling text like live thinking moves on a line, DCH when text moves left within a line, EL/ECH for blank runs,
+ * and DECFRA for long runs of one glyph. At 19200 baud a full 80x24 repaint costs about a second, so these
  * matter more than CPU time.
  */
 
@@ -47,6 +48,8 @@ export interface RendererOptions {
 	unicode?: boolean;
 	/** False for a terminal that ignores DECDWL and DECDHL: double-size lines go out letter-spaced. */
 	doubleSize?: boolean;
+	/** The terminal is set to smooth scroll anyway (DECSCLM), so rolling text needs no mode switch. */
+	smoothScroll?: boolean;
 	/**
 	 * SCS sequences for G0-G3, ending with G0 in GL. Some terminals give the status line its own designations,
 	 * starting from the power-up sets, so they are repeated on every entry.
@@ -77,6 +80,7 @@ export function rendererFor(caps: {
 	technical: boolean;
 	supplemental: SupplementalSet;
 	doubleSize?: boolean;
+	smoothScroll?: boolean;
 }): Renderer {
 	return new Renderer({
 		rows: caps.rows,
@@ -87,6 +91,7 @@ export function rendererFor(caps: {
 		eightBit: caps.eightBit,
 		unicode: caps.unicode,
 		doubleSize: caps.doubleSize !== false,
+		smoothScroll: caps.smoothScroll === true,
 		designations: charsetDesignations(caps),
 	});
 }
@@ -160,6 +165,7 @@ export class Renderer {
 		if (!this.valid) this.clearAll();
 		this.setRegion(frame.scroll);
 		this.hardwareScroll(frame);
+		this.roll(frame);
 		for (let row = 0; row < this.options.rows; row++) {
 			this.diffLine(row, frame.lines[row] ?? { cells: [], attr: LINE_SINGLE });
 		}
@@ -295,6 +301,27 @@ export class Renderer {
 		this.clampCursor();
 	}
 
+	/**
+	 * Two rows of rolling text that moved on a line: the lower row gets the rest of its line, then the terminal
+	 * smooth-scrolls the pair up, and the new line starts on the lower row, so the text rolls on like paper.
+	 */
+	private roll(frame: Frame): void {
+		for (let row = 1; row < this.options.rows; row++) {
+			const lower = frame.lines[row];
+			const upper = frame.lines[row - 1];
+			const shown = this.screen[row]!.roll;
+			if (!lower?.roll || upper?.roll?.id !== lower.roll.id || upper.roll.line !== lower.roll.line - 1) continue;
+			if (shown?.id !== lower.roll.id || shown.line !== upper.roll.line) continue;
+			this.diffLine(row, upper);
+			this.setRegion({ top: row - 1, bottom: row });
+			this.moveTo(row, 0);
+			this.emit(this.options.smoothScroll ? "\x1bD" : "\x1b[?4h\x1bD\x1b[?4l");
+			this.screen[row - 1] = this.screen[row]!;
+			this.screen[row] = { cells: new Array(this.options.columns).fill(BLANK), attr: LINE_SINGLE };
+			this.setRegion(frame.scroll);
+		}
+	}
+
 	private diffLine(row: number, desired: Line): void {
 		let current = this.screen[row]!;
 		if (current.attr !== desired.attr) {
@@ -308,6 +335,7 @@ export class Renderer {
 		if (desired.attr === LINE_SINGLE && this.options.eraseCharacters)
 			this.shiftLine(row, desired.cells, current.cells);
 		this.diffCells(row, desired.cells, current.cells, desired.attr === LINE_SINGLE);
+		current.roll = desired.roll;
 	}
 
 	/**

@@ -137,6 +137,27 @@ function controlKey(code: number): string {
 	}
 }
 
+/**
+ * xterm's F13 to F20 are Shift with F1 to F8, by the final byte or the CSI ~ code; vt420-term passes the LK401's
+ * F14 to F20, Help (F15) and Do (F16) among them, on that way.
+ */
+const XTERM_SHIFTED: Record<string, string> = {
+	P: "f13",
+	Q: "f14",
+	R: "help",
+	S: "do",
+	15: "f17",
+	17: "f18",
+	18: "f19",
+	19: "f20",
+};
+
+function shiftedKey(code: string, parameter: number | undefined): string | undefined {
+	const name = XTERM_SHIFTED[code];
+	if (!name || !parameter || !((parameter - 1) & 1)) return undefined;
+	return withModifiers(name, parameter - 1);
+}
+
 /** xterm-style modifier parameter: 1 + (shift 1 | alt 2 | ctrl 4 | meta 8). */
 function withModifiers(key: string, parameter: number | undefined): string {
 	if (!parameter || parameter < 2) return key;
@@ -416,8 +437,15 @@ export class InputParser {
 				this.paste = "";
 				return;
 			}
+			const shifted = shiftedKey(String(code), params[1]);
 			const name = TILDE_KEYS[code];
-			if (name) this.key(withModifiers(name, params[1]));
+			if (shifted) this.key(shifted);
+			else if (name) this.key(withModifiers(name, params[1]));
+			return;
+		}
+		const shifted = params.length === 2 && params[0] === 1 ? shiftedKey(final, params[1]) : undefined;
+		if (shifted) {
+			this.key(shifted);
 			return;
 		}
 		if (final === "R" && params.length === 2 && params[0] === 1) {

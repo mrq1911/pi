@@ -38,6 +38,8 @@ export interface TerminalCapabilities {
 	deviceStatus?: boolean;
 	/** DECSCNM at startup, when the terminal reported it: true for a light screen. */
 	screenReverse?: boolean;
+	/** DECSCLM at startup, when the terminal reported it: true when it scrolls smoothly. */
+	smoothScroll?: boolean;
 	/** DECSACE at startup, for putting it back after rectangle attribute changes. */
 	attributeExtent?: number;
 	/** False when the terminal ignores double-width and double-height lines, as most emulators do. */
@@ -94,6 +96,7 @@ const SAVED_MODES: ReadonlyArray<[mode: string, fallback: number | undefined]> =
 	["12", 1],
 	["4", 2],
 	["?5", undefined],
+	["?4", undefined],
 ];
 
 /** DA2 terminal types. */
@@ -224,10 +227,13 @@ export function capabilitiesFromProbe(
 ): TerminalCapabilities {
 	const da1 = probe.da1;
 	const vt400 = probe.settingReplies > 0 || (da1 !== undefined && (da1[0] ?? 0) >= 64);
-	const level = !da1 ? 0 : (da1[0] ?? 0) >= 62 ? (vt400 ? 4 : (da1[0] ?? 62) - 60) : 1;
-	const id = probe.da2?.[0];
 	const unicode = options.encoding === "utf8" || (options.encoding === "auto" && probe.utf8Column === 2);
+	const reported = !da1 ? 0 : (da1[0] ?? 0) >= 62 ? (vt400 ? 4 : (da1[0] ?? 62) - 60) : 1;
+	// an emulator does what a VT220 does at least, whatever it answers; xterm.js says VT100, zellij VT220
+	const level = unicode && da1 ? Math.max(reported, 2) : reported;
+	const id = probe.da2?.[0];
 	const screenReverse = reportedMode(probe, "?5");
+	const smoothScroll = reportedMode(probe, "?4");
 	const columns =
 		options.columns ??
 		probe.extent?.columns ??
@@ -246,8 +252,13 @@ export function capabilitiesFromProbe(
 			24,
 		columns,
 		level,
-		name:
-			id !== undefined && TERMINAL_NAMES[id] ? TERMINAL_NAMES[id] : level >= 4 ? "VT400-class terminal" : "terminal",
+		name: unicode
+			? emulatorName()
+			: id !== undefined && TERMINAL_NAMES[id]
+				? TERMINAL_NAMES[id]
+				: level >= 4
+					? "VT400-class terminal"
+					: "terminal",
 		technical: unicode || (da1 ? da1.includes(15) : true),
 		statusLine: options.statusLine === "on" || (options.statusLine === "auto" && probe.settings.has("$~")),
 		rectangularOps: probe.settings.has("*x"),
@@ -258,9 +269,19 @@ export function capabilitiesFromProbe(
 		...(baud ? { bytesPerSecond: baud / 10 } : {}),
 		...(probe.status ? { deviceStatus: true } : {}),
 		...(screenReverse === undefined ? {} : { screenReverse }),
+		...(smoothScroll === undefined ? {} : { smoothScroll }),
 		doubleSize: options.doubleSize === "on" || (options.doubleSize === "auto" && doubleWidth),
 		...(probe.settings.has("*x") ? { attributeExtent: Number(probe.settings.get("*x")) || 0 } : {}),
 	};
+}
+
+/**
+ * Emulators claim a DEC type in DA2 (zellij and xterm.js a VT100, kitty a VT220), so the name comes from vt420-term,
+ * which says what is at the end of the line, and is plain "terminal" otherwise.
+ */
+function emulatorName(): string {
+	const behind = process.env.VT420_TERM;
+	return behind ? `${behind} via vt420-term` : "terminal";
 }
 
 /** A mode's setting from DECRPM, undefined when the terminal did not know the mode. */
