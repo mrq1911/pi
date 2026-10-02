@@ -143,7 +143,8 @@ prompts with its progress on the separator row.
 comes due while another turn runs waits for it), `/loop keep the tests green` again as each run ends, the model
 choosing the wait before the next or ending the loop with a `loop_next` tool that is only active meanwhile. `/loop`
 shows what loops, `/loop stop` ends it, and so does interrupting a run. It is an extension
-(`extensions/loop.ts`) that `install.sh` links into `~/.pi/agent/extensions`, so the npm pi loads it too.
+(`extensions/loop.ts`) that `install.sh` links into `~/.pi/agent/extensions`, so the npm pi loads it too, as it
+does `/rename`, Claude Code's name for `/name`.
 Prompt templates and `/skill:name` work as in pi. `!cmd` runs a shell command; `!!cmd` keeps its output out of the context.
 
 `/login` prints the sign-in address or device code (the code in double-height letters) for another device and

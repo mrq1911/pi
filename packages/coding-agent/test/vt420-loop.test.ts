@@ -1,6 +1,7 @@
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import loopExtension, { formatInterval, parseInterval } from "../src/experimental/vt420/extensions/loop.ts";
+import renameExtension from "../src/experimental/vt420/extensions/rename.ts";
 import { createHarness, getUserTexts, type Harness } from "./suite/harness.ts";
 
 const settle = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -55,5 +56,12 @@ describe("/loop", () => {
 		await harness.session.prompt("/loop stop");
 		await settle(1200);
 		expect(getUserTexts(harness)).toEqual(["ping", "ping"]);
+	});
+
+	it("renames the session with /rename, as /name does", async () => {
+		const harness = await createHarness({ extensionFactories: [{ factory: renameExtension }] });
+		harnesses.push(harness);
+		await harness.session.prompt("/rename vt420 work");
+		expect(harness.session.sessionName).toBe("vt420 work");
 	});
 });
