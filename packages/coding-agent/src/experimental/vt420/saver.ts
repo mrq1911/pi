@@ -33,9 +33,6 @@ const RAIN_BACKLOG = 2000;
 const DROP_MAX = 16;
 /** Bright cells leading a drop down: mostly one, now and then two or three. */
 const DROP_HEADS = [1, 1, 1, 1, 1, 1, 1, 2, 2, 3];
-/** Lines a column stays dark after a drop, at least, and how many more it may. */
-const DROP_GAP = 3;
-const DROP_GAP_SPREAD = 8;
 
 /** What a model has written so far, its thinking and its text, in order. */
 export function generatedText(message: AssistantMessage | undefined): string {
@@ -82,7 +79,7 @@ export class MatrixRain {
 		this.rows = rows;
 		this.columns = columns;
 		this.random = options.random ?? Math.random;
-		this.maxDrops = options.maxDrops ?? Math.max(4, Math.floor(columns / 10));
+		this.maxDrops = options.maxDrops ?? Math.max(4, Math.floor(columns / 4));
 		this.maxGlints = options.glints ?? GLINTS_MAX;
 		this.grid = Array.from({ length: rows }, () => new Array<number>(columns).fill(BLANK));
 		this.drops = new Array(columns).fill(undefined);
@@ -125,50 +122,37 @@ export class MatrixRain {
 			}
 		}
 		let falling = this.drops.filter((drop) => drop !== undefined).length;
-		const open: number[] = [];
-		for (let col = 0; col < this.columns; col++) {
-			if (this.drops[col]) continue;
-			if (this.gaps[col]! > 0) this.gaps[col]!--;
-			else open.push(col);
-		}
-		// heavier as the backlog grows; open columns taken in no order, so the rain spreads over the whole width
+		// heavier as the backlog grows
 		const chance = Math.min(0.5, 0.04 + this.queue.length / 400);
-		while (open.length > 0 && falling < this.maxDrops && this.queue.length > 0) {
-			const col = open.splice(Math.floor(this.random() * open.length), 1)[0]!;
-			if (this.crowded(col) || this.random() >= chance) continue;
-			const word = this.nextWord();
-			if (word.length === 0) continue;
-			// a short word keeps most of itself dim
-			const heads = DROP_HEADS[Math.floor(this.random() * DROP_HEADS.length)]!;
-			this.drops[col] = {
-				cells: word.reverse(),
-				bright: Math.min(heads, Math.max(1, word.length >> 1)),
-				solo: false,
-			};
-			falling++;
-		}
 		for (let col = 0; col < this.columns; col++) {
-			const drop = this.drops[col];
-			if (!drop) continue;
+			let drop = this.drops[col];
+			if (!drop) {
+				if (this.gaps[col]! > 0) {
+					this.gaps[col]!--;
+					continue;
+				}
+				if (falling >= this.maxDrops || this.queue.length === 0 || this.random() >= chance) continue;
+				const word = this.nextWord();
+				if (word.length === 0) continue;
+				// a short word keeps most of itself dim
+				const heads = DROP_HEADS[Math.floor(this.random() * DROP_HEADS.length)]!;
+				drop = { cells: word.reverse(), bright: Math.min(heads, Math.max(1, word.length >> 1)), solo: false };
+				this.drops[col] = drop;
+				falling++;
+			}
 			const cell = drop.cells.shift()!;
 			top[col] = drop.bright > 0 ? cell | ATTR_BOLD : cell;
 			drop.bright = Math.max(0, drop.bright - 1);
 			if (drop.cells.length === 0) {
 				this.drops[col] = undefined;
-				this.gaps[col] = DROP_GAP + Math.floor(this.random() * DROP_GAP_SPREAD);
+				this.gaps[col] = 1 + Math.floor(this.random() * 6);
+				falling--;
 			}
 		}
 		this.grid.pop();
 		this.grid.unshift(top);
 		this.fallen++;
 		this.race();
-	}
-
-	/** Two columns either side of a word coming in, or one just in, wait: streams close together read as a wall. */
-	private crowded(col: number): boolean {
-		return [col - 2, col - 1, col + 1, col + 2].some(
-			(side) => this.drops[side] !== undefined || (this.grid[0]?.[side] ?? BLANK) !== BLANK,
-		);
 	}
 
 	/** Lines fallen that the screen has not shown yet. */
