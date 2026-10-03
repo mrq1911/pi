@@ -147,6 +147,11 @@ const SYNC_BYTES_PER_SECOND = 960;
 const SYNC_CHUNK = 160;
 /** Bytes a DEC terminal has not answered yet, at most: two pieces' worth, however the frames split into them. */
 const SYNC_BYTES_WINDOW = 2 * SYNC_CHUNK;
+/**
+ * Bytes a line of rain may take: a VT420 set to XOFF at 128 takes in that much while it glides a line, and the rest
+ * would hold the next glide up.
+ */
+const RAIN_LINE_BYTES = 112;
 /** On a faster line the window holds this much of the line's time instead, up to four pieces. */
 const SYNC_WINDOW_SECONDS = 1 / 6;
 /** How long answers may lag what the frames out take, and the first probe's wait; each next one waits twice as long. */
@@ -2660,15 +2665,11 @@ export class Vt420App {
 		if (this.io.caps.screenReverse) this.io.write("\x1b[?5l");
 		if (mode === "matrix") {
 			const { rows, columns, bytesPerSecond } = this.io.caps;
-			// as dense as the line keeps smooth: a line of rain costs about 18 bytes and 10 more for each drop; the 64
-			// the terminal takes in while it glides come free, the rest hold the next glide up, by 40 ms at most:
-			// 12 drops at 19200 baud, 19 at 38400
-			const budget = Math.floor((64 - 18 + (bytesPerSecond ?? 1920) * 0.04) / 10);
-			const drops = Math.max(6, Math.min(Math.floor(columns / 3), budget));
 			this.rain = new MatrixRain(rows, columns, {
-				maxDrops: drops,
-				// two glints for every three drops
-				glints: Math.max(3, Math.round((drops * 2) / 3)),
+				maxDrops: Math.floor(columns / 3),
+				glints: Math.round(columns / 6),
+				// no more than the terminal takes in while it glides, so one glide follows the next without a pause
+				lineBytes: Math.min(RAIN_LINE_BYTES, (bytesPerSecond ?? 1920) / 10),
 			});
 			// a message streaming now starts the rain from a little way back
 			this.rainSeen = Math.max(0, generatedText(this.streamingMessage()).length - 240);

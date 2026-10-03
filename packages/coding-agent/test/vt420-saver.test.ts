@@ -38,6 +38,37 @@ describe("vt420 screen saver", () => {
 		expect(rain.active).toBe(false);
 	});
 
+	it("keeps each line within its bytes, so the terminal can take it in while it glides", () => {
+		const text = charset.cells("the quick brown fox jumps over the lazy dog ".repeat(40));
+		const seeded = (): (() => number) => {
+			let seed = 7;
+			return () => {
+				seed = (seed * 1103515245 + 12345) % 2147483648;
+				return seed / 2147483648;
+			};
+		};
+		const lit = (lineBytes?: number): number[] => {
+			const rain = new MatrixRain(24, 80, {
+				random: seeded(),
+				maxDrops: 26,
+				glints: 13,
+				...(lineBytes ? { lineBytes } : {}),
+			});
+			rain.feed(text);
+			const counts: number[] = [];
+			for (let step = 0; step < 60; step++) {
+				rain.step();
+				counts.push(rain.lines()[0]!.cells.filter((cell) => cell !== 0x20).length);
+			}
+			return counts;
+		};
+		const tight = lit(40);
+		// ten bytes for the line, three for each letter coming in: ten letters at most
+		expect(Math.max(...tight)).toBeLessThanOrEqual(10);
+		const free = lit();
+		expect(free.reduce((sum, count) => sum + count, 0)).toBeGreaterThan(tight.reduce((sum, count) => sum + count, 0));
+	});
+
 	it("leads a drop with up to three bright cells now and then", () => {
 		// the chance, then three bright
 		const script = [0, 0.99];

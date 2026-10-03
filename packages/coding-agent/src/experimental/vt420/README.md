@@ -79,9 +79,10 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
   half minute; `matrix` rains down the words the model generates, the whole screen moving down a line at a time with
   the terminal's smooth scroll and each word entering its column last letter first, bright (now and then the next one
   or two as well), so it reads top to bottom as it falls, with bright glints racing down some streams at one and a
-  half times their speed so they seem to overtake the rest (smooth scroll stays on while it rains, and the frames are
-  kept small enough for a VT420 to take each line during the glide before), a lone π falling while the model works
-  without writing, and the π line once all is done; `blank` shows nothing; `off` is the default on emulators. Any key
+  half times their speed so they seem to overtake the rest (smooth scroll stays on while it rains, and each line costs
+  at most what a VT420 set to XOFF at 128 takes in while it glides the one before, 112 bytes, so the glides follow
+  each other without a pause: drops already falling always get their next letter, new drops and glints share what is
+  left), a lone π falling while the model works without writing, and the π line once all is done; `blank` shows nothing; `off` is the default on emulators. Any key
   wakes the screen and does nothing else.
   `/screensaver matrix` keeps the mode and starts it at once, as plain `/screensaver` and `/screensaver 0` do;
   `/screensaver blank 5` keeps the mode and minutes in `vt420.json` (`"screensaver"`, `"screensaverMinutes"`) for next

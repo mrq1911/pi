@@ -23,7 +23,7 @@ export function isSaverMode(value: string): value is SaverMode {
 
 /** How often the rain may fall a line; the terminal's answers hold it back to the pace it can glide. */
 export const RAIN_STEP_MS = 25;
-/** Glints racing down the streams at once, at most, unless the line speed says otherwise; each rewrites two cells a line. */
+/** Glints racing down the streams at once, at most, unless told otherwise; each rewrites two cells a line. */
 const GLINTS_MAX = 8;
 /** Chance a free glint starts on a stream each line: every time, so as many race as may. */
 const GLINT_CHANCE = 1;
@@ -31,6 +31,15 @@ const GLINT_CHANCE = 1;
 const RAIN_BACKLOG = 2000;
 /** Longest word one drop carries. */
 const DROP_MAX = 16;
+/**
+ * About what the renderer writes for a line of rain: the scroll and requests, a cell coming in at the top with the
+ * move to it, a bright one's renditions, a glint moving down a row and one starting.
+ */
+const COST_LINE = 10;
+const COST_CELL = 3;
+const COST_BRIGHT = 4;
+const COST_GLINT_MOVE = 12;
+const COST_GLINT_START = 8;
 /** Bright cells leading a drop down: mostly one, now and then two or three. */
 const DROP_HEADS = [1, 1, 1, 1, 1, 1, 1, 2, 2, 3];
 
@@ -71,16 +80,22 @@ export class MatrixRain {
 	/** Lines fallen since the screen was last drawn. */
 	private fallen = 0;
 
+	/** Bytes a line may cost, about; drops coming in always get theirs, new drops and glints share what is left. */
+	private readonly lineBytes: number;
+	/** What is left of this line's bytes. */
+	private spare = Number.POSITIVE_INFINITY;
+
 	constructor(
 		rows: number,
 		columns: number,
-		options: { random?: () => number; maxDrops?: number; glints?: number } = {},
+		options: { random?: () => number; maxDrops?: number; glints?: number; lineBytes?: number } = {},
 	) {
 		this.rows = rows;
 		this.columns = columns;
 		this.random = options.random ?? Math.random;
 		this.maxDrops = options.maxDrops ?? Math.max(4, Math.floor(columns / 4));
 		this.maxGlints = options.glints ?? GLINTS_MAX;
+		this.lineBytes = options.lineBytes ?? Number.POSITIVE_INFINITY;
 		this.grid = Array.from({ length: rows }, () => new Array<number>(columns).fill(BLANK));
 		this.drops = new Array(columns).fill(undefined);
 		this.gaps = new Array<number>(columns).fill(0);
@@ -121,7 +136,13 @@ export class MatrixRain {
 				this.soloLength = solo.length;
 			}
 		}
-		let falling = this.drops.filter((drop) => drop !== undefined).length;
+		let falling = 0;
+		this.spare = this.lineBytes - COST_LINE;
+		for (const drop of this.drops) {
+			if (!drop) continue;
+			falling++;
+			this.spare -= COST_CELL + (drop.bright > 0 ? COST_BRIGHT : 0);
+		}
 		// heavier as the backlog grows
 		const chance = Math.min(0.5, 0.04 + this.queue.length / 400);
 		for (let col = 0; col < this.columns; col++) {
@@ -131,9 +152,11 @@ export class MatrixRain {
 					this.gaps[col]!--;
 					continue;
 				}
-				if (falling >= this.maxDrops || this.queue.length === 0 || this.random() >= chance) continue;
+				if (falling >= this.maxDrops || this.queue.length === 0 || this.spare < COST_CELL + COST_BRIGHT) continue;
+				if (this.random() >= chance) continue;
 				const word = this.nextWord();
 				if (word.length === 0) continue;
+				this.spare -= COST_CELL + COST_BRIGHT;
 				// a short word keeps most of itself dim
 				const heads = DROP_HEADS[Math.floor(this.random() * DROP_HEADS.length)]!;
 				drop = { cells: word.reverse(), bright: Math.min(heads, Math.max(1, word.length >> 1)), solo: false };
@@ -175,8 +198,9 @@ export class MatrixRain {
 		this.glints = this.glints.flatMap((glint) => {
 			const here = glint.row + 1;
 			if (here >= this.rows) return [];
-			// the other half rides the rain this line
-			if (glint.odd !== odd) return [{ ...glint, row: here }];
+			// the other half rides the rain this line, and so does one the line has no room for
+			if (glint.odd !== odd || this.spare < COST_GLINT_MOVE) return [{ ...glint, row: here }];
+			this.spare -= COST_GLINT_MOVE;
 			const next = here + 1;
 			const ahead = cell(next, glint.col);
 			this.grid[here]![glint.col] = cell(here, glint.col) & ~ATTR_BOLD;
@@ -191,7 +215,8 @@ export class MatrixRain {
 			const start = cell(1, col);
 			if (!isSpace(start) && !(start & ATTR_BOLD) && !this.glints.some((glint) => glint.col === col)) free.push(col);
 		}
-		while (this.glints.length < this.maxGlints && free.length > 0) {
+		while (this.glints.length < this.maxGlints && free.length > 0 && this.spare >= COST_GLINT_START) {
+			this.spare -= COST_GLINT_START;
 			const col = free.splice(Math.floor(this.random() * free.length), 1)[0]!;
 			if (this.random() >= GLINT_CHANCE) continue;
 			this.grid[1]![col] = cell(1, col) | ATTR_BOLD;
