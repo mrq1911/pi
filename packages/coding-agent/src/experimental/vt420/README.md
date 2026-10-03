@@ -69,8 +69,9 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
   baud), so even a page never runs ahead of the terminal while small frames still follow each other without a pause,
   whatever the line speed, the buffers on the way or flow control that comes back over ssh too late to stop it;
   emulators get whole frames paced the same way. Limited transmit, which holds the terminal's answers to 150
-  characters a second, is lifted for the session (DECXRLM) and put back on exit. XON/XOFF stays on, so Hold Screen
-  works. On a terminal set to smooth scroll, scrolls of more than two lines jump: gliding through a page takes
+  characters a second, is lifted for the session (DECXRLM) and put back on exit. When answers stop coming, lost on
+  the line or held up by Set-Up, Hold Screen or flow control, only a DA1 probe goes out, less often each time, until
+  one is answered, so a held terminal never gets a backlog to wade through. XON/XOFF stays on, so Hold Screen works. On a terminal set to smooth scroll, scrolls of more than two lines jump: gliding through a page takes
   seconds, and what arrives meanwhile would overflow it.
 - **Screen saver**: a model can work for hours, and a CRT keeps a picture it shows that long, so after ten minutes
   without a key the screen goes dark. `progress`, the default on DEC terminals, shows one line of how the work goes

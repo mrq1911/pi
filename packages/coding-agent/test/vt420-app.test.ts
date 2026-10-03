@@ -290,19 +290,54 @@ describe("vt420 app", () => {
 		await da1.key("ctrl+d");
 		await da1.done;
 
-		const lost = await start(harness, { deviceStatus: true, bytesPerSecond: 1920 }, undefined, { drop: true });
+		const line: Line = { drop: true };
+		const lost = await start(harness, { deviceStatus: true, bytesPerSecond: 1920 }, undefined, line, {
+			syncTimeoutMs: 100,
+		});
 		lost.input({ type: "text", text: "a" });
 		await settle(40);
 		lost.input({ type: "text", text: "b" });
 		await settle(40);
 		// the first frame and the "a" are out unanswered, so the "b" waits
 		expect(lost.screen()).not.toContain("ab");
-		await settle(1500);
+		const before = lost.output.length;
+		await settle(400);
+		// answers have stopped: only probes go out, DA1, which a DSR answer cannot be taken for
+		const probes = lost.output.slice(before);
+		expect(probes.length).toBeGreaterThanOrEqual(2);
+		expect(probes.every((bytes) => bytes === "\x1b[c")).toBe(true);
+		expect(lost.screen()).not.toContain("ab");
+		// the terminal answers again: a probe's answer settles what was out, and the "b" follows
+		line.drop = false;
+		await settle(600);
 		expect(lost.screen()).toContain("ab");
 		await lost.key("ctrl+c");
 		await lost.key("ctrl+d");
 		await lost.done;
 	}, 10_000);
+
+	it("still draws now and then for a terminal that answers nothing", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		const app = await start(
+			harness,
+			{ deviceStatus: true, bytesPerSecond: 1920 },
+			undefined,
+			{ drop: true },
+			{
+				syncTimeoutMs: 50,
+			},
+		);
+		app.input({ type: "text", text: "a" });
+		await settle(40);
+		app.input({ type: "text", text: "b" });
+		// four probes unanswered, 50, 100 and 200 ms apart, then a window goes out with each
+		await settle(1000);
+		expect(app.screen()).toContain("ab");
+		await app.key("ctrl+c");
+		await app.key("ctrl+d");
+		await app.done;
+	});
 
 	it("darkens the screen after a spell without keys, and the key that wakes it does nothing else", async () => {
 		const harness = await createHarness();

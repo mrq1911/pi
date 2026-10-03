@@ -123,6 +123,8 @@ export interface Vt420AppOptions {
 	/** A Return followed by more input within this window is a pasted newline, not a submit. */
 	pasteWindowMs?: number;
 	animationFps?: number;
+	/** How long answers may lag the time the frames out take before probes start, and the first probe's wait. */
+	syncTimeoutMs?: number;
 	/** Screen saver after a spell without keys; "auto" is "progress" on a DEC terminal and "off" on emulators. */
 	screensaver?: SaverMode | "auto";
 	screensaverMinutes?: number;
@@ -147,6 +149,12 @@ const SYNC_CHUNK = 160;
 const SYNC_BYTES_WINDOW = 2 * SYNC_CHUNK;
 /** On a faster line the window holds this much of the line's time instead, up to four pieces. */
 const SYNC_WINDOW_SECONDS = 1 / 6;
+/** How long answers may lag what the frames out take, and the first probe's wait; each next one waits twice as long. */
+const SYNC_TIMEOUT_MS = 1000;
+/** The longest wait for a probe, in first waits. */
+const SYNC_PROBE_MAX = 8;
+/** Probes left unanswered before frames go out without answers, one each time a probe would. */
+const SYNC_PROBES_BLIND = 4;
 
 /** Pieces joined into runs of at most `max` characters; a longer piece stays whole. */
 function chunks(parts: readonly string[], max: number): string[] {
@@ -323,10 +331,17 @@ export class Vt420App {
 	private renderTimer: ReturnType<typeof setTimeout> | undefined;
 	private animationTimer: ReturnType<typeof setTimeout> | undefined;
 	private pendingReturn: ReturnType<typeof setTimeout> | undefined;
-	/** Ends each frame: DSR 5, whose answer is four bytes, or DA1 where DSR goes unanswered. */
-	private syncRequest: { bytes: string; answer: TerminalResponse["kind"] } | undefined;
+	/**
+	 * Ends each frame: DSR 5, whose answer is four bytes, or DA1 where DSR goes unanswered. `probe` asks again once
+	 * answers stop coming, with an answer of its own where it can.
+	 */
+	private syncRequest:
+		| { bytes: string; answer: TerminalResponse["kind"]; probe: string; probeAnswer: TerminalResponse["kind"] }
+		| undefined;
 	/** Bytes of each piece the terminal has not answered yet. */
 	private unanswered: number[] = [];
+	/** Probes out since answers stopped coming; while there are any, frames wait. */
+	private stallProbes = 0;
 	/** Pieces of the last frame still to go out. */
 	private outbox: string[] = [];
 	private syncTimer: ReturnType<typeof setTimeout> | undefined;
@@ -405,11 +420,12 @@ export class Vt420App {
 		const caps = this.io.caps;
 		if (this.io.onResponse && (caps.deviceStatus || caps.level > 0)) {
 			const sync = caps.deviceStatus
-				? { bytes: "\x1b[5n", answer: "status" as const }
-				: { bytes: "\x1b[c", answer: "da1" as const };
+				? { bytes: "\x1b[5n", answer: "status" as const, probe: "\x1b[c", probeAnswer: "da1" as const }
+				: { bytes: "\x1b[c", answer: "da1" as const, probe: "\x1b[c", probeAnswer: "da1" as const };
 			this.syncRequest = sync;
 			this.io.onResponse((response) => {
-				if (response.kind === sync.answer) this.answered();
+				if (this.stallProbes > 0 && response.kind === sync.probeAnswer) this.recovered();
+				else if (response.kind === sync.answer) this.answered();
 			});
 		}
 		this.io.onResize(() => {
@@ -2454,6 +2470,7 @@ export class Vt420App {
 	 * bytes, so a frame of small pieces can follow one still drawing, and the screen keeps moving.
 	 */
 	private roomOnLine(): boolean {
+		if (this.held) return false;
 		if (this.io.caps.unicode) return this.unanswered.length < SYNC_WINDOW;
 		return this.unanswered.reduce((sum, length) => sum + length, 0) < this.bytesWindow();
 	}
@@ -2469,6 +2486,7 @@ export class Vt420App {
 		const sync = this.syncRequest;
 		if (!sync) return;
 		const fits = (next: number): boolean => {
+			if (this.held) return false;
 			if (this.unanswered.length === 0) return true;
 			if (this.io.caps.unicode) return this.unanswered.length < SYNC_WINDOW;
 			return this.unanswered.reduce((sum, length) => sum + length, 0) + next <= this.bytesWindow();
@@ -2486,24 +2504,60 @@ export class Vt420App {
 	private answered(): void {
 		if (this.unanswered.length === 0) return;
 		this.unanswered.shift();
+		// a late answer: the rest may follow, else the probe's answer settles them
+		if (this.stallProbes > 0 && this.unanswered.length > 0) return;
+		this.stallProbes = 0;
 		this.armSync();
 		this.pump();
 		this.releaseFrame();
 	}
 
-	/** An answer lost on the way must not stop the screen: past the time the frames out could take, they count as drawn. */
+	/** The probe came back: all that went out before it is drawn, and answers still missing were lost on the way. */
+	private recovered(): void {
+		this.stallProbes = 0;
+		this.unanswered = [];
+		this.armSync();
+		this.pump();
+		this.releaseFrame();
+	}
+
+	/**
+	 * Past the time the frames out could take, answers have stopped: lost on the way, or the terminal is held, in
+	 * Set-Up, by Hold Screen or by flow control. Then only a probe goes out, less often each time, so a held terminal
+	 * gets no backlog to wade through, or wedge the line with, once it goes on. One that answers no probe at all gets
+	 * a frame now and then.
+	 */
 	private armSync(): void {
 		clearTimeout(this.syncTimer);
 		this.syncTimer = undefined;
-		if (this.unanswered.length === 0) return;
+		if (this.unanswered.length === 0 && this.stallProbes === 0) return;
 		const bytes = this.unanswered.reduce((sum, length) => sum + length, 0);
-		const ms = 1000 + (bytes * 1000) / (this.io.caps.bytesPerSecond ?? SYNC_BYTES_PER_SECOND);
-		this.syncTimer = setTimeout(() => {
-			this.syncTimer = undefined;
+		const base = this.options.syncTimeoutMs ?? SYNC_TIMEOUT_MS;
+		const ms =
+			this.stallProbes > 0
+				? base * Math.min(SYNC_PROBE_MAX, 2 ** (this.stallProbes - 1))
+				: base + (bytes * 1000) / (this.io.caps.bytesPerSecond ?? SYNC_BYTES_PER_SECOND);
+		this.syncTimer = setTimeout(() => this.probeSync(), ms);
+	}
+
+	private probeSync(): void {
+		this.syncTimer = undefined;
+		const sync = this.syncRequest;
+		if (!sync || this.closed) return;
+		this.stallProbes++;
+		this.io.write(sync.probe);
+		if (this.stallProbes >= SYNC_PROBES_BLIND) {
+			// nothing answers: a window's worth goes out anyway each time a probe does
 			this.unanswered = [];
 			this.pump();
 			this.releaseFrame();
-		}, ms);
+		}
+		this.armSync();
+	}
+
+	/** Waiting on a probe, with nothing to go out until it is answered. */
+	private get held(): boolean {
+		return this.stallProbes > 0 && this.stallProbes < SYNC_PROBES_BLIND;
 	}
 
 	private releaseFrame(): void {
