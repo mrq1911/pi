@@ -78,12 +78,15 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
   (`π Working 1h 05m · 41.2 tok/s`, `π Waiting for you`, and just `π` once the work is done) in another place every
   half minute; `matrix` rains down the words the model generates, the whole screen moving down a line at a time with
   the terminal's smooth scroll and each word entering its column last letter first, bright (now and then the next one
-  or two as well), so it reads top to bottom as it falls, with bright glints racing down some streams at one and a
-  half times their speed so they seem to overtake the rest (smooth scroll stays on while it rains, and each line costs
-  at most what a VT420 set to XOFF at 128 takes in while it glides the one before, 112 bytes, so the glides follow
-  each other without a pause: drops already falling always get their next letter, new drops and glints share what is
-  left), a lone π falling while the model works without writing, and the π line once all is done; `blank` shows nothing; `off` is the default on emulators. Any key
-  wakes the screen and does nothing else.
+  or two as well), so it reads top to bottom as it falls, new words mostly starting beside a stream already falling,
+  anywhere across the screen, so the rain clumps, with bright glints hopping three rows down a stream every sixth
+  line, half again the rain's speed, so streams seem to overtake each other (smooth scroll stays on while it rains;
+  each line costs at most what a VT420 set to XOFF at 128 takes in while it glides the one before, 128 bytes,
+  checked against what the renderer wrote, with drops already falling getting their letters first and some bytes
+  kept for the glints, so the glides follow each other without a pause; and no more than two lines are out at once,
+  so a key wakes the screen a glide or two later), a lone π falling while the model works without writing, and the π
+  line once all is done; `blank` shows nothing; `off` is the default on emulators. Any key wakes the screen and does
+  nothing else.
   `/screensaver matrix` keeps the mode and starts it at once, as plain `/screensaver` and `/screensaver 0` do;
   `/screensaver blank 5` keeps the mode and minutes in `vt420.json` (`"screensaver"`, `"screensaverMinutes"`) for next
   time.

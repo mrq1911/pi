@@ -14,6 +14,8 @@ import { EMU_BOLD, EMU_REVERSE, EMU_UNDERLINE, type EmulatorOptions, Vt420Emulat
 interface Line {
 	/** How long the terminal takes to answer; a line that loses answers never does. */
 	answerDelayMs?: number;
+	/** Answers one at a time, this long apart at least, as a terminal that takes that long over each piece. */
+	serialMs?: number;
 	drop?: boolean;
 }
 
@@ -68,6 +70,7 @@ async function start(
 	const inFlight: number[] = [];
 	const forks: string[] = [];
 	let respond: ((response: TerminalResponse) => void) | undefined;
+	let nextAnswer = 0;
 	const answers = new InputParser({
 		onEvent: (event) => {
 			if (event.type !== "response") return;
@@ -83,7 +86,10 @@ async function start(
 		statusState,
 		lineAttributes: capabilities.doubleSize !== false,
 		onResponse: (bytes) => {
-			if (line && !line.drop) setTimeout(() => answers.feed(bytes), line.answerDelayMs ?? 0);
+			if (!line || line.drop) return;
+			const at = Math.max(Date.now() + (line.answerDelayMs ?? 0), nextAnswer + (line.serialMs ?? 0));
+			nextAnswer = at;
+			setTimeout(() => answers.feed(bytes), at - Date.now());
 		},
 	});
 	emulator.feed(
@@ -431,6 +437,38 @@ describe("vt420 app", () => {
 		// one line a frame: several at once would jump instead of gliding
 		expect(app.output.slice(before).join("")).not.toContain("\x1bM\x1bM");
 		await app.type("x");
+		expect(app.emulator.text(2)).toContain("VT420");
+		await waitForIdle(harness);
+		await app.key("ctrl+d");
+		await app.done;
+	});
+
+	it("keeps two lines of rain out at most, so a key wakes the screen a glide or two later", async () => {
+		const slow: AgentTool = {
+			name: "slow",
+			label: "slow",
+			description: "Take a while",
+			parameters: Type.Object({}),
+			execute: async () => {
+				await settle(3000);
+				return { content: [{ type: "text", text: "done" }], details: {} };
+			},
+		};
+		const harness = await createHarness({ tools: [slow] });
+		harnesses.push(harness);
+		// each piece takes the terminal 60 ms, as a line takes a VT420 to glide
+		const app = await start(harness, { deviceStatus: true, bytesPerSecond: 3840 }, undefined, { serialMs: 60 });
+		await app.submit("/screensaver matrix");
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("slow", {})], { stopReason: "toolUse" }),
+			fauxAssistantMessage("ok"),
+		]);
+		void harness.session.prompt("wait");
+		// π falls on its own, a few bytes a line, which a window in bytes would let pile up by the dozen
+		await settle(1500);
+		expect(app.line.mostAhead).toBeLessThanOrEqual(6);
+		await app.type("x");
+		await settle(500);
 		expect(app.emulator.text(2)).toContain("VT420");
 		await waitForIdle(harness);
 		await app.key("ctrl+d");

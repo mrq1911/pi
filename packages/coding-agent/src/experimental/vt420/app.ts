@@ -151,7 +151,9 @@ const SYNC_BYTES_WINDOW = 2 * SYNC_CHUNK;
  * Bytes a line of rain may take: a VT420 set to XOFF at 128 takes in that much while it glides a line, and the rest
  * would hold the next glide up.
  */
-const RAIN_LINE_BYTES = 112;
+const RAIN_LINE_BYTES = 128;
+/** Lines of rain out at once, at most: each costs a glide, which whatever comes next waits behind. */
+const RAIN_LINES_AHEAD = 2;
 /** On a faster line the window holds this much of the line's time instead, up to four pieces. */
 const SYNC_WINDOW_SECONDS = 1 / 6;
 /** How long answers may lag what the frames out take, and the first probe's wait; each next one waits twice as long. */
@@ -347,6 +349,12 @@ export class Vt420App {
 	private unanswered: number[] = [];
 	/** Probes out since answers stopped coming; while there are any, frames wait. */
 	private stallProbes = 0;
+	/** Pieces sent and answered in all, and the piece that ends each line of rain still out. */
+	private piecesSent = 0;
+	private piecesAnswered = 0;
+	private rainLinesOut: number[] = [];
+	/** Lines of rain in the frame being drawn. */
+	private rainShift = 0;
 	/** Pieces of the last frame still to go out. */
 	private outbox: string[] = [];
 	private syncTimer: ReturnType<typeof setTimeout> | undefined;
@@ -2455,6 +2463,7 @@ export class Vt420App {
 			this.framePending = true;
 			return;
 		}
+		this.rainShift = 0;
 		const parts = this.renderer.renderParts(this.compose());
 		if (parts.length > 0 && !this.syncRequest) this.io.write(parts.join(""));
 		else if (parts.length > 0) {
@@ -2464,6 +2473,11 @@ export class Vt420App {
 			this.outbox = this.io.caps.unicode
 				? [parts.join("")]
 				: [...(head > 0 ? [parts.slice(0, head).join("")] : []), ...chunks(parts.slice(head), SYNC_CHUNK)];
+			if (this.rainShift > 0 && this.syncRequest) {
+				this.rainLinesOut.push(this.piecesSent + this.outbox.length);
+				const requests = this.outbox.length * this.syncRequest.bytes.length;
+				this.rain?.measured(this.outbox.reduce((sum, piece) => sum + piece.length, 0) + requests);
+			}
 			this.pump();
 		}
 		this.lastFrameAt = Date.now();
@@ -2500,6 +2514,7 @@ export class Vt420App {
 			const bytes = this.outbox.shift()! + sync.bytes;
 			// counted before writing: a terminal can answer before write returns
 			this.unanswered.push(bytes.length);
+			this.piecesSent++;
 			this.armSync();
 			this.io.write(bytes);
 		}
@@ -2509,6 +2524,7 @@ export class Vt420App {
 	private answered(): void {
 		if (this.unanswered.length === 0) return;
 		this.unanswered.shift();
+		this.piecesAnswered++;
 		// a late answer: the rest may follow, else the probe's answer settles them
 		if (this.stallProbes > 0 && this.unanswered.length > 0) return;
 		this.stallProbes = 0;
@@ -2521,6 +2537,7 @@ export class Vt420App {
 	private recovered(): void {
 		this.stallProbes = 0;
 		this.unanswered = [];
+		this.piecesAnswered = this.piecesSent;
 		this.armSync();
 		this.pump();
 		this.releaseFrame();
@@ -2554,6 +2571,7 @@ export class Vt420App {
 		if (this.stallProbes >= SYNC_PROBES_BLIND) {
 			// nothing answers: a window's worth goes out anyway each time a probe does
 			this.unanswered = [];
+			this.piecesAnswered = this.piecesSent;
 			this.pump();
 			this.releaseFrame();
 		}
@@ -2619,6 +2637,7 @@ export class Vt420App {
 		if (this.saving === "matrix" && this.rain && (this.rain.active || this.saverBusy())) {
 			const status = statusLine ? [] : undefined;
 			const shift = this.rain.takeFallen();
+			this.rainShift = shift;
 			return { lines: this.rain.lines(), status, scroll: { top: 0, bottom: rows - 1 }, smooth: true, shift };
 		}
 		if (this.saving) return saverFrame(rows, columns, this.saverLine(), this.saverPlace, statusLine);
@@ -2725,6 +2744,9 @@ export class Vt420App {
 		const rain = this.rain;
 		// one line a frame: lines fallen faster than frames go out would scroll several at once, which jumps
 		if (!rain || rain.undrawn > 0 || this.outbox.length > 0 || !this.roomOnLine()) return;
+		// each line out is a glide still to come, and a key waits behind all of them: one glides, one waits its turn
+		this.rainLinesOut = this.rainLinesOut.filter((piece) => piece > this.piecesAnswered);
+		if (this.rainLinesOut.length >= RAIN_LINES_AHEAD) return;
 		const busy = this.saverBusy();
 		if (!rain.raining && !busy && !rain.active) return;
 		rain.step(busy ? this.charset.cells("π") : undefined);

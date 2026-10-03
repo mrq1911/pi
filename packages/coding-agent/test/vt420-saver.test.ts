@@ -51,7 +51,7 @@ describe("vt420 screen saver", () => {
 			const rain = new MatrixRain(24, 80, {
 				random: seeded(),
 				maxDrops: 26,
-				glints: 13,
+				glints: 0,
 				...(lineBytes ? { lineBytes } : {}),
 			});
 			rain.feed(text);
@@ -70,8 +70,8 @@ describe("vt420 screen saver", () => {
 	});
 
 	it("leads a drop with up to three bright cells now and then", () => {
-		// the chance, then three bright
-		const script = [0, 0.99];
+		// the first open column, the chance, then three bright
+		const script = [0, 0, 0.99];
 		const rain = new MatrixRain(8, 3, { random: () => script.shift() ?? 0, glints: 0 });
 		rain.feed(charset.cells("abcdef"));
 		for (let step = 0; step < 6; step++) rain.step();
@@ -95,20 +95,24 @@ describe("vt420 screen saver", () => {
 		expect(rain.lines().filter((line) => line.cells[0] !== 0x20).length).toBeLessThanOrEqual(1);
 	});
 
-	it("runs bright glints down the streams faster than the rain, so streams seem to overtake", () => {
-		const rain = new MatrixRain(12, 2, { random: () => 0 });
-		rain.feed(charset.cells("abcdefghijkl"));
-		const bright = (): number[] => rain.lines().flatMap((line, row) => (line.cells[0]! & ATTR_BOLD ? [row] : []));
-		for (let step = 0; step < 4; step++) rain.step();
-		// the drop's own bright head at the bottom of what has entered, and a glint running ahead of the rain above it
-		const before = bright();
-		rain.step();
-		rain.step();
-		const after = bright();
-		expect(after.length).toBeGreaterThan(1);
-		// a glint races every other line: three rows in two, one ahead of the rain
-		const glintBefore = Math.min(...before);
-		expect(after).toContain(glintBefore + 3);
+	it("hops bright glints down the streams faster than the rain, so streams seem to overtake", () => {
+		const rain = new MatrixRain(24, 1, { random: () => 0, maxDrops: 1, glints: 1 });
+		rain.feed(charset.cells("abcdefghijklmnopqrstuvwx"));
+		// bright rows above the stream's own head, the lowest one
+		const glint = (): number | undefined => {
+			const rows = rain.lines().flatMap((line, row) => (line.cells[0]! & ATTR_BOLD ? [row] : []));
+			return rows.length > 1 ? rows[0] : undefined;
+		};
+		let hops = 0;
+		let last = glint();
+		for (let step = 0; step < 20; step++) {
+			rain.step();
+			const now = glint();
+			// the rain moves a row a line; a hop takes the glint three more
+			if (last !== undefined && now === last + 4) hops++;
+			last = now;
+		}
+		expect(hops).toBeGreaterThan(0);
 	});
 
 	it("keeps a line inside the screen wherever it is put", () => {

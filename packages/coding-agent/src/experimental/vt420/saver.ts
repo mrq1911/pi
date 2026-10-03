@@ -40,6 +40,13 @@ const COST_CELL = 3;
 const COST_BRIGHT = 4;
 const COST_GLINT_MOVE = 12;
 const COST_GLINT_START = 8;
+/** Chance a new drop starts beside a stream already falling rather than anywhere. */
+const DROP_CLUMP = 0.8;
+/** A glint hops on one line in this many, this many rows down its stream. */
+const GLINT_PHASES = 6;
+const GLINT_JUMP = GLINT_PHASES / 2;
+/** Bytes of each line new drops leave to the glints. */
+const GLINT_RESERVE = 40;
 /** Bright cells leading a drop down: mostly one, now and then two or three. */
 const DROP_HEADS = [1, 1, 1, 1, 1, 1, 1, 2, 2, 3];
 
@@ -74,8 +81,8 @@ export class MatrixRain {
 	private soloAge = Number.POSITIVE_INFINITY;
 	private soloLength = 0;
 	/** Bright cells running down their streams a row faster than the rain, so streams seem to overtake each other. */
-	private glints: Array<{ row: number; col: number; odd: boolean }> = [];
-	/** Lines fallen in all; glints race on every other one, half of them on each, which halves what they cost. */
+	private glints: Array<{ row: number; col: number; phase: number }> = [];
+	/** Lines fallen in all; a glint hops on one line in GLINT_PHASES, a share of them on each, so they cost that much less. */
 	private line = 0;
 	/** Lines fallen since the screen was last drawn. */
 	private fallen = 0;
@@ -84,6 +91,9 @@ export class MatrixRain {
 	private readonly lineBytes: number;
 	/** What is left of this line's bytes. */
 	private spare = Number.POSITIVE_INFINITY;
+	/** What the renderer wrote for a line against what the costs above came to, kept so they stay true to it. */
+	private scale = 1;
+	private estimate = 0;
 
 	constructor(
 		rows: number,
@@ -137,45 +147,66 @@ export class MatrixRain {
 			}
 		}
 		let falling = 0;
-		this.spare = this.lineBytes - COST_LINE;
+		const budget = this.lineBytes / this.scale;
+		this.spare = budget - COST_LINE;
 		for (const drop of this.drops) {
 			if (!drop) continue;
 			falling++;
 			this.spare -= COST_CELL + (drop.bright > 0 ? COST_BRIGHT : 0);
 		}
-		// heavier as the backlog grows
-		const chance = Math.min(0.5, 0.04 + this.queue.length / 400);
+		const open: number[] = [];
 		for (let col = 0; col < this.columns; col++) {
-			let drop = this.drops[col];
-			if (!drop) {
-				if (this.gaps[col]! > 0) {
-					this.gaps[col]!--;
-					continue;
-				}
-				if (falling >= this.maxDrops || this.queue.length === 0 || this.spare < COST_CELL + COST_BRIGHT) continue;
-				if (this.random() >= chance) continue;
-				const word = this.nextWord();
-				if (word.length === 0) continue;
-				this.spare -= COST_CELL + COST_BRIGHT;
-				// a short word keeps most of itself dim
-				const heads = DROP_HEADS[Math.floor(this.random() * DROP_HEADS.length)]!;
-				drop = { cells: word.reverse(), bright: Math.min(heads, Math.max(1, word.length >> 1)), solo: false };
-				this.drops[col] = drop;
-				falling++;
-			}
+			if (this.drops[col]) continue;
+			if (this.gaps[col]! > 0) this.gaps[col]!--;
+			else open.push(col);
+		}
+		// heavier as the backlog grows; open columns in no order, so no side of the screen gets the line's bytes first,
+		// and some kept back for the glints
+		const chance = Math.min(0.5, 0.04 + this.queue.length / 400);
+		const reserve = Math.min(GLINT_RESERVE, this.maxGlints * COST_GLINT_MOVE);
+		while (open.length > 0 && falling < this.maxDrops && this.queue.length > 0) {
+			if (this.spare - reserve < COST_CELL + COST_BRIGHT) break;
+			// often beside a stream already falling: the rain clumps, and a letter next to another costs no move
+			const near = open.filter((col) => this.drops[col - 1] || this.drops[col + 1]);
+			const from = near.length > 0 && this.random() < DROP_CLUMP ? near : open;
+			const col = from[Math.floor(this.random() * from.length)]!;
+			open.splice(open.indexOf(col), 1);
+			if (this.random() >= chance) continue;
+			const word = this.nextWord();
+			if (word.length === 0) continue;
+			this.spare -= COST_CELL + COST_BRIGHT;
+			// a short word keeps most of itself dim
+			const heads = DROP_HEADS[Math.floor(this.random() * DROP_HEADS.length)]!;
+			this.drops[col] = {
+				cells: word.reverse(),
+				bright: Math.min(heads, Math.max(1, word.length >> 1)),
+				solo: false,
+			};
+			falling++;
+		}
+		for (let col = 0; col < this.columns; col++) {
+			const drop = this.drops[col];
+			if (!drop) continue;
 			const cell = drop.cells.shift()!;
 			top[col] = drop.bright > 0 ? cell | ATTR_BOLD : cell;
 			drop.bright = Math.max(0, drop.bright - 1);
 			if (drop.cells.length === 0) {
 				this.drops[col] = undefined;
 				this.gaps[col] = 1 + Math.floor(this.random() * 6);
-				falling--;
 			}
 		}
 		this.grid.pop();
 		this.grid.unshift(top);
 		this.fallen++;
 		this.race();
+		this.estimate = budget - this.spare;
+	}
+
+	/** What the last line took on the line, so the costs follow how the rain is drawn: spread out, a cell costs more. */
+	measured(bytes: number): void {
+		if (this.estimate <= 0 || !Number.isFinite(this.lineBytes)) return;
+		const ratio = Math.min(3, Math.max(1 / 3, bytes / this.estimate));
+		this.scale = this.scale * 0.8 + ratio * 0.2;
 	}
 
 	/** Lines fallen that the screen has not shown yet. */
@@ -190,23 +221,30 @@ export class MatrixRain {
 		return fallen;
 	}
 
-	/** Every glint moved down with the screen; each takes one more row down its stream, or fades at its end. */
+	/**
+	 * Every glint moves down with the screen, and on its line hops GLINT_JUMP rows further down its stream: as fast on
+	 * the whole as a row more every other line, at half the cells rewritten. At a gap, the bottom or a stream's own
+	 * bright head it fades.
+	 */
 	private race(): void {
 		const cell = (row: number, col: number): number => this.grid[row]?.[col] ?? BLANK;
 		this.line++;
-		const odd = this.line % 2 === 1;
+		const phase = this.line % GLINT_PHASES;
 		this.glints = this.glints.flatMap((glint) => {
 			const here = glint.row + 1;
 			if (here >= this.rows) return [];
-			// the other half rides the rain this line, and so does one the line has no room for
-			if (glint.odd !== odd || this.spare < COST_GLINT_MOVE) return [{ ...glint, row: here }];
+			// the others ride the rain this line, and so does one the line has no room for
+			if (glint.phase !== phase || this.spare < COST_GLINT_MOVE) return [{ ...glint, row: here }];
 			this.spare -= COST_GLINT_MOVE;
-			const next = here + 1;
-			const ahead = cell(next, glint.col);
+			let next = here;
+			while (next - here < GLINT_JUMP) {
+				const ahead = cell(next + 1, glint.col);
+				if (next + 1 >= this.rows || isSpace(ahead) || ahead & ATTR_BOLD) break;
+				next++;
+			}
 			this.grid[here]![glint.col] = cell(here, glint.col) & ~ATTR_BOLD;
-			// at a gap, the bottom or a stream's own bright head, the glint is done
-			if (next >= this.rows || isSpace(ahead) || ahead & ATTR_BOLD) return [];
-			this.grid[next]![glint.col] = ahead | ATTR_BOLD;
+			if (next === here) return [];
+			this.grid[next]![glint.col] = cell(next, glint.col) | ATTR_BOLD;
 			return [{ ...glint, row: next }];
 		});
 		// a glint lives only until its stream's next gap, so every line fills the free ones from streams just coming in
@@ -220,12 +258,10 @@ export class MatrixRain {
 			const col = free.splice(Math.floor(this.random() * free.length), 1)[0]!;
 			if (this.random() >= GLINT_CHANCE) continue;
 			this.grid[1]![col] = cell(1, col) | ATTR_BOLD;
-			// alternate, so as many race on odd lines as on even ones
-			this.glints.push({
-				row: 1,
-				col,
-				odd: this.glints.filter((glint) => glint.odd).length * 2 < this.glints.length,
-			});
+			// on the line with the fewest, so each line moves as many
+			const counts = new Array<number>(GLINT_PHASES).fill(0);
+			for (const glint of this.glints) counts[glint.phase]!++;
+			this.glints.push({ row: 1, col, phase: counts.indexOf(Math.min(...counts)) });
 		}
 	}
 
