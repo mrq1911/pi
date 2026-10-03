@@ -62,6 +62,8 @@ export interface EmulatorOptions {
 	utf8?: boolean;
 	/** False ignores DECDWL and DECDHL, as most modern emulators do. */
 	lineAttributes?: boolean;
+	/** DECXRLM as Set-Up left it: true for limited transmit; undefined leaves the mode unknown to DECRQM. */
+	transmitLimited?: boolean;
 }
 
 export class Vt420Emulator {
@@ -84,6 +86,7 @@ export class Vt420Emulator {
 	cursorVisible = true;
 	/** DECSCNM: the whole screen shown in reverse. */
 	screenReverse = false;
+	transmitLimited: boolean | undefined;
 	/** DECSACE: 2 makes DECCARA and DECRARA work on rectangles, anything else on the stream of characters. */
 	attributeExtent = 0;
 	top = 0;
@@ -128,6 +131,7 @@ export class Vt420Emulator {
 		this.statusStateMode = options.statusState ?? "separate";
 		this.utf8 = options.utf8 ?? false;
 		this.lineAttributes = options.lineAttributes ?? true;
+		this.transmitLimited = options.transmitLimited;
 		this.status = this.blankLine();
 		for (let row = 0; row < this.rows; row++) this.lines.push(this.blankLine());
 	}
@@ -676,6 +680,7 @@ export class Vt420Emulator {
 		if (mode === 7) return this.autowrap ? 1 : 2;
 		if (mode === 25) return this.cursorVisible ? 1 : 2;
 		if (mode === 5) return this.screenReverse ? 1 : 2;
+		if (mode === 73 && this.transmitLimited !== undefined) return this.transmitLimited ? 1 : 2;
 		if ([1, 6, 66, 67].includes(mode)) return 2;
 		return 0;
 	}
@@ -686,6 +691,7 @@ export class Vt420Emulator {
 			this.pendingWrap = false;
 		} else if (mode === 25) this.cursorVisible = set;
 		else if (mode === 5) this.screenReverse = set;
+		else if (mode === 73 && this.transmitLimited !== undefined) this.transmitLimited = set;
 	}
 
 	private moveVertical(delta: number): void {

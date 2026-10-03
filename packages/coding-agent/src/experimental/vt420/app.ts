@@ -145,6 +145,8 @@ const SYNC_BYTES_PER_SECOND = 960;
 const SYNC_CHUNK = 160;
 /** Bytes a DEC terminal has not answered yet, at most: two pieces' worth, however the frames split into them. */
 const SYNC_BYTES_WINDOW = 2 * SYNC_CHUNK;
+/** On a faster line the window holds this much of the line's time instead, up to four pieces. */
+const SYNC_WINDOW_SECONDS = 1 / 6;
 
 /** Pieces joined into runs of at most `max` characters; a longer piece stays whole. */
 function chunks(parts: readonly string[], max: number): string[] {
@@ -2453,7 +2455,13 @@ export class Vt420App {
 	 */
 	private roomOnLine(): boolean {
 		if (this.io.caps.unicode) return this.unanswered.length < SYNC_WINDOW;
-		return this.unanswered.reduce((sum, length) => sum + length, 0) < SYNC_BYTES_WINDOW;
+		return this.unanswered.reduce((sum, length) => sum + length, 0) < this.bytesWindow();
+	}
+
+	/** In-flight bytes a DEC terminal may have: two pieces, or a sixth of a second of a fast line, four at most. */
+	private bytesWindow(): number {
+		const line = Math.round((this.io.caps.bytesPerSecond ?? 0) * SYNC_WINDOW_SECONDS);
+		return Math.min(2 * SYNC_BYTES_WINDOW, Math.max(SYNC_BYTES_WINDOW, line));
 	}
 
 	/** Send waiting pieces while they fit in the window, or the line is empty. */
@@ -2463,7 +2471,7 @@ export class Vt420App {
 		const fits = (next: number): boolean => {
 			if (this.unanswered.length === 0) return true;
 			if (this.io.caps.unicode) return this.unanswered.length < SYNC_WINDOW;
-			return this.unanswered.reduce((sum, length) => sum + length, 0) + next <= SYNC_BYTES_WINDOW;
+			return this.unanswered.reduce((sum, length) => sum + length, 0) + next <= this.bytesWindow();
 		};
 		while (this.outbox.length > 0 && fits(this.outbox[0]!.length + sync.bytes.length)) {
 			const bytes = this.outbox.shift()! + sync.bytes;
@@ -2598,11 +2606,13 @@ export class Vt420App {
 		if (this.io.caps.screenReverse) this.io.write("\x1b[?5l");
 		if (mode === "matrix") {
 			const { rows, columns, bytesPerSecond } = this.io.caps;
-			// as dense as the line keeps smooth: 12 drops and 8 glints at 19200 baud, twice that at 38400
-			const budget = Math.round((bytesPerSecond ?? 1920) / 160);
+			// as dense as the line keeps smooth: a line of rain costs about 18 bytes and 10 more for each drop; the 64
+			// the terminal takes in while it glides come free, the rest hold the next glide up, by 40 ms at most:
+			// 12 drops at 19200 baud, 19 at 38400
+			const budget = Math.floor((64 - 18 + (bytesPerSecond ?? 1920) * 0.04) / 10);
 			this.rain = new MatrixRain(rows, columns, {
 				maxDrops: Math.max(6, Math.min(Math.floor(columns / 3), budget)),
-				// two glints for every three drops: about 8 at 19200 baud
+				// two glints for every three drops
 				glints: Math.max(3, Math.round((budget * 2) / 3)),
 			});
 			// a message streaming now starts the rain from a little way back

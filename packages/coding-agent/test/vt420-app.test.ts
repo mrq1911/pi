@@ -264,6 +264,20 @@ describe("vt420 app", () => {
 		await app.done;
 	});
 
+	it("lets a 38400 baud line carry a sixth of a second at once", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		const app = await start(harness, { deviceStatus: true, bytesPerSecond: 3840 }, undefined, { answerDelayMs: 30 });
+		await app.key("help");
+		await settle(1500);
+		expect(app.line.mostBytes).toBeGreaterThan(320);
+		expect(app.line.mostBytes).toBeLessThanOrEqual(640);
+		expect(app.screen()).toContain("send, steer while working");
+		await app.key("f11");
+		await app.key("ctrl+d");
+		await app.done;
+	});
+
 	it("paces with DA1 when the terminal does not answer DSR, and gets past a lost answer", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
@@ -276,14 +290,14 @@ describe("vt420 app", () => {
 		await da1.key("ctrl+d");
 		await da1.done;
 
-		const lost = await start(harness, { deviceStatus: true, bytesPerSecond: 1_000_000 }, undefined, { drop: true });
+		const lost = await start(harness, { deviceStatus: true, bytesPerSecond: 1920 }, undefined, { drop: true });
 		lost.input({ type: "text", text: "a" });
 		await settle(40);
 		lost.input({ type: "text", text: "b" });
 		await settle(40);
 		// the first frame and the "a" are out unanswered, so the "b" waits
 		expect(lost.screen()).not.toContain("ab");
-		await settle(1200);
+		await settle(1500);
 		expect(lost.screen()).toContain("ab");
 		await lost.key("ctrl+c");
 		await lost.key("ctrl+d");

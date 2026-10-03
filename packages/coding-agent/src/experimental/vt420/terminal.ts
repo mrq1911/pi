@@ -84,7 +84,6 @@ export interface ProbeResult {
 	modes: Map<string, number>;
 }
 
-/** Modes the session changes, with the value (1 set, 2 reset) to restore when the terminal did not report. */
 /** Modes put back on exit; one without a fallback is only put back when the terminal reported it. */
 const SAVED_MODES: ReadonlyArray<[mode: string, fallback: number | undefined]> = [
 	["?7", 1],
@@ -97,6 +96,7 @@ const SAVED_MODES: ReadonlyArray<[mode: string, fallback: number | undefined]> =
 	["4", 2],
 	["?5", undefined],
 	["?4", undefined],
+	["?73", undefined],
 ];
 
 /** DA2 terminal types. */
@@ -534,6 +534,8 @@ export class Vt420Terminal {
 			[
 				SESSION_MODES,
 				"\x1b[?1l\x1b>",
+				// Set-Up's limited transmit holds every answer to 150 characters a second, and pacing waits on them
+				reportedMode(this.probe, "?73") ? "\x1b[?73l" : "",
 				options.columns ? `\x1b[${options.columns}$|` : "",
 				options.lines ? `\x1b[${options.lines}*|` : "",
 				charsetDesignations({

@@ -130,6 +130,16 @@ describe("vt420 terminal probe", () => {
 		expect(capabilitiesFromProbe(result, AUTO, {}, undefined).rows).toBe(24);
 	});
 
+	it("lifts limited transmit for the session and puts it back", () => {
+		const limited = probe({ rows: 24, columns: 80, transmitLimited: true });
+		expect(limited.modes.get("?73")).toBe(1);
+		expect(restoreSequence(limited, { statusLine: false }, {})).toContain("\x1b[?73h");
+		const unlimited = probe({ rows: 24, columns: 80, transmitLimited: false });
+		expect(restoreSequence(unlimited, { statusLine: false }, {})).toContain("\x1b[?73l");
+		// a terminal that does not know the mode is left alone
+		expect(restoreSequence(probe({ rows: 24, columns: 80 }), { statusLine: false }, {})).not.toContain("?73");
+	});
+
 	it("restores the reported modes and status line type", () => {
 		const result = probe({ rows: 24, columns: 80, statusType: 0 });
 		result.modes.set("?7", 2);
