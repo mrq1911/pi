@@ -76,11 +76,12 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
   without a key the screen goes dark. `progress`, the default on DEC terminals, shows one line of how the work goes
   (`π Working 1h 05m · 41.2 tok/s`, `π Waiting for you`, and just `π` once the work is done) in another place every
   half minute; `matrix` rains down the words the model generates, the whole screen moving down a line at a time with
-  the terminal's smooth scroll and each word entering its column last letter first, bright, so it reads top to bottom
-  as it falls, with bright glints racing down some streams at one and a half times their speed so they seem to
-  overtake the rest (smooth scroll stays on while it rains, and the frames are kept small enough for a VT420 to take
-  each line during the glide before), a lone π falling while the model works without writing, and the π line once all
-  is done; `blank` shows nothing; `off` is the default on emulators. Any key wakes the screen and does nothing else.
+  the terminal's smooth scroll and each word entering its column last letter first, bright (now and then the next one
+  or two as well), so it reads top to bottom as it falls, a drop for every ten columns at most and none within two
+  columns of another, with bright glints racing down some streams at one and a half times their speed so they seem
+  to overtake the rest (smooth scroll stays on while it rains, and the frames are kept small enough for a VT420 to
+  take each line during the glide before), a lone π falling while the model works without writing, and the π line
+  once all is done; `blank` shows nothing; `off` is the default on emulators. Any key wakes the screen and does nothing else.
   `/screensaver matrix` keeps the mode and starts it at once, as plain `/screensaver` and `/screensaver 0` do;
   `/screensaver blank 5` keeps the mode and minutes in `vt420.json` (`"screensaver"`, `"screensaverMinutes"`) for next
   time.

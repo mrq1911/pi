@@ -2608,12 +2608,13 @@ export class Vt420App {
 			const { rows, columns, bytesPerSecond } = this.io.caps;
 			// as dense as the line keeps smooth: a line of rain costs about 18 bytes and 10 more for each drop; the 64
 			// the terminal takes in while it glides come free, the rest hold the next glide up, by 40 ms at most:
-			// 12 drops at 19200 baud, 19 at 38400
+			// 12 drops at 19200 baud; and a drop for every ten columns at most, more reads as a wall
 			const budget = Math.floor((64 - 18 + (bytesPerSecond ?? 1920) * 0.04) / 10);
+			const drops = Math.max(6, Math.min(Math.floor(columns / 10), budget));
 			this.rain = new MatrixRain(rows, columns, {
-				maxDrops: Math.max(6, Math.min(Math.floor(columns / 3), budget)),
+				maxDrops: drops,
 				// two glints for every three drops
-				glints: Math.max(3, Math.round((budget * 2) / 3)),
+				glints: Math.max(3, Math.round((drops * 2) / 3)),
 			});
 			// a message streaming now starts the rain from a little way back
 			this.rainSeen = Math.max(0, generatedText(this.streamingMessage()).length - 240);

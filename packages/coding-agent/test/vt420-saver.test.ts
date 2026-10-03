@@ -15,13 +15,15 @@ function column(rain: MatrixRain, col: number): string {
 
 describe("vt420 screen saver", () => {
 	it("rains words down a column, last letter first and bright, so they read top to bottom", () => {
-		const rain = new MatrixRain(8, 4, { random: () => 0, glints: 0 });
+		const rain = new MatrixRain(8, 7, { random: () => 0, glints: 0 });
 		rain.feed(charset.cells("render  frames fast"));
 		expect(rain.active).toBe(true);
 		for (let step = 0; step < 6; step++) rain.step();
 		expect(column(rain, 0)).toBe("render  ");
-		expect(column(rain, 1)).toBe("frames  ");
-		expect(column(rain, 2)).toBe("  fast  ");
+		expect(column(rain, 3)).toBe("frames  ");
+		expect(column(rain, 6)).toBe("  fast  ");
+		// two dark columns between streams
+		for (const col of [1, 2, 4, 5]) expect(column(rain, col)).toBe("        ");
 		// the letter that led the way down is the bright one
 		expect(rain.lines()[5]!.cells[0]! & ATTR_BOLD).toBe(ATTR_BOLD);
 		expect(rain.lines()[4]!.cells[0]! & ATTR_BOLD).toBe(0);
@@ -36,6 +38,36 @@ describe("vt420 screen saver", () => {
 		).toEqual(before.slice(0, -1));
 		for (let step = 0; step < 8; step++) rain.step();
 		expect(rain.active).toBe(false);
+	});
+
+	it("keeps streams two columns apart", () => {
+		let seed = 7;
+		const random = (): number => {
+			seed = (seed * 1103515245 + 12345) % 2147483648;
+			return seed / 2147483648;
+		};
+		const rain = new MatrixRain(24, 80, { random, maxDrops: 40, glints: 0 });
+		rain.feed(charset.cells("the quick brown fox jumps over the lazy dog ".repeat(40)));
+		for (let step = 0; step < 80; step++) {
+			rain.step();
+			const top = rain.lines()[0]!.cells;
+			const close = top.some(
+				(cell, col) => cell !== 0x20 && [col + 1, col + 2].some((side) => side < 80 && top[side] !== 0x20),
+			);
+			expect(close).toBe(false);
+		}
+	});
+
+	it("leads a drop with up to three bright cells now and then", () => {
+		// the first open column, the chance, three bright
+		const script = [0, 0, 0.99];
+		const rain = new MatrixRain(8, 3, { random: () => script.shift() ?? 0, glints: 0 });
+		rain.feed(charset.cells("abcdef"));
+		for (let step = 0; step < 6; step++) rain.step();
+		expect(column(rain, 0)).toBe("abcdef  ");
+		const bright = rain.lines().map((line) => (line.cells[0]! & ATTR_BOLD ? 1 : 0));
+		// the three that led the way down
+		expect(bright).toEqual([0, 0, 0, 1, 1, 1, 0, 0]);
 	});
 
 	it("lets a lone drop fall when there are no words, one at a time", () => {
