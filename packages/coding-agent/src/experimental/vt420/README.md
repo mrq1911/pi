@@ -136,7 +136,7 @@ the LK401's F14 to F20, Help and Do on, count as those keys. Every binding can b
 `/compact [focus]`, `/session`, `/name [name]`, `/settings`, `/scoped-models`, `/login [provider]`,
 `/logout [provider]`, `/trust`, `/copy`, `/share`, `/bug [what went wrong]`,
 `/export [path]` (HTML, or JSONL for a `.jsonl` path), `/changelog`, `/reload`, `/charset`, `/redraw`,
-`/screensaver [off|blank|progress|matrix] [minutes]`, `/quit`. `/copy` uses OSC 52 on an emulator and the desktop
+`/screensaver [off|blank|progress|matrix] [minutes]`, `/quit` (or `/q`). `/copy` uses OSC 52 on an emulator and the desktop
 clipboard on a host that has one; a VT420 has neither. `/settings` has pi's settings that apply here (auto-compact,
 steering and follow-up modes, thinking per model, transport, HTTP idle timeout, cache warming, images, skill commands,
 project trust, telemetry) and the screen saver's; `/scoped-models` picks the models next-model goes through, at once

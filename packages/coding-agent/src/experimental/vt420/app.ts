@@ -206,7 +206,7 @@ export const COMMANDS: readonly CommandInfo[] = [
 	{ name: "charset", description: "show every VT420 glyph" },
 	{ name: "redraw", description: "repaint the screen" },
 	{ name: "screensaver", args: "[off|blank|progress|matrix] [min]", description: "dark screen now, or set when" },
-	{ name: "quit", description: "exit" },
+	{ name: "quit", description: "exit, also /q" },
 ];
 
 type Mode =
@@ -1173,6 +1173,7 @@ export class Vt420App {
 				return true;
 			case "quit":
 			case "exit":
+			case "q":
 				this.exit();
 				return true;
 			default:

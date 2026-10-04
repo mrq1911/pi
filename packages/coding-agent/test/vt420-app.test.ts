@@ -230,6 +230,14 @@ describe("vt420 app", () => {
 		await app.done;
 	});
 
+	it("quits on /q as on /quit", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		const app = await start(harness);
+		await app.submit("/q");
+		await app.done;
+	});
+
 	it("paces its frames by the terminal's answers, a few hundred bytes at most ahead", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
