@@ -125,7 +125,7 @@ export interface Vt420AppOptions {
 	animationFps?: number;
 	/** How long answers may lag the time the frames out take before probes start, and the first probe's wait. */
 	syncTimeoutMs?: number;
-	/** Screen saver after a spell without keys; "auto" is "progress" on a DEC terminal and "off" on emulators. */
+	/** Screen saver after a spell without keys, on a VT400-class DEC terminal only; "auto" is "progress". */
 	screensaver?: SaverMode | "auto";
 	screensaverMinutes?: number;
 	saverMoveMs?: number;
@@ -361,6 +361,7 @@ export class Vt420App {
 	private framePending = false;
 	private lastFrameAt = 0;
 	private saver: SaverMode;
+	private readonly saverHere: boolean;
 	private saverMinutes: number;
 	private saverTimer: ReturnType<typeof setTimeout> | undefined;
 	private saverMoveTimer: ReturnType<typeof setInterval> | undefined;
@@ -389,7 +390,10 @@ export class Vt420App {
 		});
 		this.renderer = this.createRenderer();
 		const saver = options.screensaver ?? "auto";
-		this.saver = saver === "auto" ? (caps.unicode ? "off" : "progress") : saver;
+		this.saver = saver === "auto" ? "progress" : saver;
+		// a CRT keeps a picture shown for hours; an emulator, zellij-vt420 included, or a terminal that does not say what it
+		// is, gets no screen saver, whatever the setting
+		this.saverHere = !caps.unicode && caps.level >= 4;
 		this.saverMinutes = options.screensaverMinutes ?? SAVER_MINUTES;
 		this.extensionUI = createExtensionUI({
 			select: (title, items, signal) => this.dialogSelect(title, items, signal),
@@ -886,7 +890,7 @@ export class Vt420App {
 			["app.resume", () => void this.showSessions()],
 			["app.mainScreen", () => this.scrollToEnd()],
 			["app.redraw", () => this.redraw()],
-			["app.matrix", () => this.startSaver("matrix")],
+			["app.matrix", () => (this.saverHere ? this.startSaver("matrix") : this.noSaverHere())],
 			["app.thinking.cycle", () => this.cycleThinking()],
 			["app.model.select", () => this.showModels()],
 			["app.model.cycle", () => void this.cycleModel()],
@@ -1810,7 +1814,7 @@ export class Vt420App {
 			this.armSaver();
 		};
 		const levels = Object.keys(settings.getAllModelThinkingLevels()).length;
-		return [
+		const rows: SettingRow[] = [
 			{
 				label: "Auto-compact",
 				value: onOff(session.autoCompactionEnabled),
@@ -1890,25 +1894,30 @@ export class Vt420App {
 				value: onOff(settings.getEnableInstallTelemetry()),
 				apply: (value) => settings.setEnableInstallTelemetry(value === "on"),
 			},
-			{
-				label: "Screen saver",
-				value: this.saver,
-				choices: ["off", "blank", "progress", "matrix"],
-				apply: (value) => {
-					if (isSaverMode(value)) this.saver = value;
-					keepSaver();
-				},
-			},
-			{
-				label: "Screen saver after",
-				value: `${this.saverMinutes} min`,
-				choices: SAVER_WAITS.map((minutes) => `${minutes} min`),
-				apply: (value) => {
-					this.saverMinutes = Number.parseInt(value, 10);
-					keepSaver();
-				},
-			},
 		];
+		if (this.saverHere) {
+			rows.push(
+				{
+					label: "Screen saver",
+					value: this.saver,
+					choices: ["off", "blank", "progress", "matrix"],
+					apply: (value) => {
+						if (isSaverMode(value)) this.saver = value;
+						keepSaver();
+					},
+				},
+				{
+					label: "Screen saver after",
+					value: `${this.saverMinutes} min`,
+					choices: SAVER_WAITS.map((minutes) => `${minutes} min`),
+					apply: (value) => {
+						this.saverMinutes = Number.parseInt(value, 10);
+						keepSaver();
+					},
+				},
+			);
+		}
+		return rows;
 	}
 
 	/** `/settings`: a toggle flips at once, a choice opens its values, and the list comes back where it was. */
@@ -2672,7 +2681,7 @@ export class Vt420App {
 	private armSaver(): void {
 		clearTimeout(this.saverTimer);
 		this.saverTimer = undefined;
-		if (this.saver === "off" || this.closed) return;
+		if (this.saver === "off" || !this.saverHere || this.closed) return;
 		this.saverTimer = setTimeout(() => this.startSaver(this.saver), this.saverMinutes * 60_000);
 	}
 
@@ -2788,11 +2797,19 @@ export class Vt420App {
 		return this.charset.cells(text ? `π ${text}` : "π");
 	}
 
+	private noSaverHere(): void {
+		this.notice("info", "No screen saver here: it is for a VT420, and this terminal is not one");
+	}
+
 	/**
 	 * `/screensaver` with a mode keeps it as the setting, and with minutes the wait; without minutes, or with 0, it
 	 * starts at once.
 	 */
 	private screensaverCommand(args: string): void {
+		if (!this.saverHere) {
+			this.noSaverHere();
+			return;
+		}
 		let now = true;
 		let changed = false;
 		for (const word of args.split(/\s+/).filter((part) => part !== "")) {

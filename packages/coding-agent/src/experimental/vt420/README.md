@@ -74,9 +74,10 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
   one is answered, so a held terminal never gets a backlog to wade through. XON/XOFF stays on, so Hold Screen works. On a terminal set to smooth scroll, scrolls of more than two lines jump: gliding through a page takes
   seconds, and what arrives meanwhile would overflow it.
 - **Screen saver**: a model can work for hours, and a CRT keeps a picture it shows that long, so after ten minutes
-  without a key the screen goes dark. `progress`, the default on DEC terminals, shows one line of how the work goes
-  (`π Working 1h 05m · 41.2 tok/s`, `π Waiting for you`, and just `π` once the work is done) in another place every
-  half minute; `matrix` rains down the words the model generates, the whole screen moving down a line at a time with
+  without a key the screen goes dark, on a VT400-class DEC terminal only: an emulator (zellij-vt420 included) or a
+  terminal that does not say what it is gets none, whatever the setting. `progress`, the default, shows one line of
+  how the work goes (`π Working 1h 05m · 41.2 tok/s`, `π Waiting for you`, and just `π` once the work is done) in
+  another place every half minute; `matrix` rains down the words the model generates, the whole screen moving down a line at a time with
   the terminal's smooth scroll and each word entering its column last letter first, bright (now and then the next one
   or two as well), so it reads top to bottom as it falls, new words mostly starting beside a stream already falling,
   anywhere across the screen, so the rain clumps, with bright glints hopping three rows down a stream every sixth
@@ -85,8 +86,7 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
   checked against what the renderer wrote, with drops already falling getting their letters first and some bytes
   kept for the glints, so the glides follow each other without a pause; and no more than two lines are out at once,
   so a key wakes the screen a glide or two later), a lone π falling while the model works without writing, and the π
-  line once all is done; `blank` shows nothing; `off` is the default on emulators. Any key wakes the screen and does
-  nothing else.
+  line once all is done; `blank` shows nothing; `off` turns it off. Any key wakes the screen and does nothing else.
   `/screensaver matrix` keeps the mode and starts it at once, as plain `/screensaver` and `/screensaver 0` do;
   `/screensaver blank 5` keeps the mode and minutes in `vt420.json` (`"screensaver"`, `"screensaverMinutes"`) for next
   time.
@@ -117,7 +117,7 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
 | F9 Main Screen, Select | back to the live view |
 | F14 Additional Options | command menu |
 | Help | keys and commands |
-| F20 | Matrix rain at once, whatever the screen saver is set to; any key ends it |
+| F20 | Matrix rain at once, whatever the screen saver is set to, on a VT400-class terminal; any key ends it |
 | PF1 / PF2 / PF3 / PF4 | thinking level / model / show thinking / expand tool output |
 | Prev Screen, Next Screen, Find | page the transcript, jump to the top |
 | F12 BS, F13 LF | start of line, delete word (as on VMS) |

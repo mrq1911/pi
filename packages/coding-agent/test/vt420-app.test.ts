@@ -369,6 +369,31 @@ describe("vt420 app", () => {
 		await app.done;
 	});
 
+	it("keeps no screen saver on an emulator or a terminal that does not say what it is, whatever the setting", async () => {
+		for (const caps of [
+			{ unicode: true, supplemental: "latin1" as const },
+			{ level: 0, name: "terminal" },
+		]) {
+			const harness = await createHarness();
+			harnesses.push(harness);
+			const saved: unknown[] = [];
+			const app = await start(harness, caps, undefined, undefined, {
+				screensaver: "matrix",
+				screensaverMinutes: 0.003,
+				saveSettings: (settings) => saved.push(settings),
+			});
+			await settle(300);
+			expect(app.screen()).toContain("Help keys");
+			await app.key("f20");
+			await app.submit("/screensaver blank");
+			expect(app.screen()).toContain("No screen saver here");
+			expect(app.screen()).toContain("Help keys");
+			expect(saved).toEqual([]);
+			await app.key("ctrl+d");
+			await app.done;
+		}
+	});
+
 	it("shows how the work goes, somewhere else every so often, and /screensaver keeps its setting", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
