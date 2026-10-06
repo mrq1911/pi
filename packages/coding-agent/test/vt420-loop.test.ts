@@ -46,6 +46,26 @@ describe("/loop", () => {
 		expect(harness.session.getActiveToolNames()).not.toContain("loop_next");
 	});
 
+	it("tells each run it is part of a self-paced loop, and ends the loop when a run does not pace it", async () => {
+		const harness = await createHarness({ extensionFactories: [{ factory: loopExtension }] });
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage("did it, said nothing about the next run"),
+			fauxAssistantMessage("again"),
+		]);
+		await harness.session.prompt("/loop keep the tests green");
+		await settle(2500);
+		// one run only, rather than another every second
+		expect(getUserTexts(harness)).toEqual(["keep the tests green"]);
+		expect(harness.session.getActiveToolNames()).not.toContain("loop_next");
+		const notes = harness.session.messages.filter(
+			(message) => message.role === "custom" && "customType" in message && message.customType === "loop",
+		);
+		expect(notes).toHaveLength(1);
+		expect(JSON.stringify(notes[0])).toContain("run 1 of a self-paced /loop");
+		expect(JSON.stringify(notes[0])).toContain("loop_next");
+	});
+
 	it("runs on an interval until /loop stop", async () => {
 		const harness = await createHarness({ extensionFactories: [{ factory: loopExtension }] });
 		harnesses.push(harness);

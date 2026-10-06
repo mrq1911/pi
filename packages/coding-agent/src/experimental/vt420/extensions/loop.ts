@@ -3,7 +3,8 @@
  *
  *   /loop 5m check the build    every five minutes; a run that comes due while another turn runs waits for it
  *   /loop keep the tests green  again as each run ends; the model picks the wait before the next, or ends the loop,
- *                               with the loop_next tool, which is only active while a loop runs
+ *                               with the loop_next tool, which is only active while a loop runs; each run tells it
+ *                               so, and a run that does not call it ends the loop rather than going again at once
  *   /loop                       what is looping
  *   /loop stop                  end it; interrupting a run ends it too
  *
@@ -30,6 +31,8 @@ interface Loop {
 	started: boolean;
 	/** The wait the model asked for before the next self-paced run. */
 	nextDelayMs: number;
+	/** The model called loop_next during this run. */
+	paced: boolean;
 	/** Set when the model ended the loop, with its reason. */
 	stopReason?: string;
 	/** An interval run came due while another turn ran. */
@@ -91,6 +94,7 @@ export default function loopExtension(pi: ExtensionAPI) {
 		current.due = false;
 		current.running = true;
 		current.started = false;
+		current.paced = false;
 		current.runs++;
 		status();
 		pi.sendUserMessage(current.prompt, { expandPromptTemplates: true });
@@ -113,6 +117,10 @@ export default function loopExtension(pi: ExtensionAPI) {
 			return;
 		}
 		if (!current.intervalMs) {
+			if (!current.paced) {
+				stop(`Loop ended: run ${current.runs} did not say when to run again`);
+				return;
+			}
 			const delay = Math.max(MIN_DELAY_MS, current.nextDelayMs);
 			current.nextDelayMs = 0;
 			current.timer = setTimeout(run, delay);
@@ -146,6 +154,7 @@ export default function loopExtension(pi: ExtensionAPI) {
 		async execute(_toolCallId, params) {
 			const reply = (text: string) => ({ content: [{ type: "text" as const, text }], details: {} });
 			if (!loop) return reply("No loop is running.");
+			loop.paced = true;
 			if (params.stop) {
 				loop.stopReason = params.reason ?? "";
 				return reply("The loop ends after this run.");
@@ -195,7 +204,16 @@ export default function loopExtension(pi: ExtensionAPI) {
 				return;
 			}
 			stop();
-			loop = { prompt, intervalMs, runs: 0, running: false, started: false, nextDelayMs: 0, due: false };
+			loop = {
+				prompt,
+				intervalMs,
+				runs: 0,
+				running: false,
+				started: false,
+				nextDelayMs: 0,
+				paced: false,
+				due: false,
+			};
 			toolActive(true);
 			run();
 			if (intervalMs) every(intervalMs);
@@ -206,6 +224,16 @@ export default function loopExtension(pi: ExtensionAPI) {
 		context = ctx;
 		// the tool only belongs to a running loop
 		if (!loop) toolActive(false);
+	});
+
+	// the run's prompt is the user's own; a note beside it, which the transcript does not show, says what it is part of
+	pi.on("before_agent_start", () => {
+		const current = loop;
+		if (!current?.running || current.started) return undefined;
+		const content = current.intervalMs
+			? `This turn is run ${current.runs} of a /loop that repeats the prompt every ${formatInterval(current.intervalMs)}.`
+			: `This turn is run ${current.runs} of a self-paced /loop that repeats the prompt. Before you finish, call ${TOOL}: delaySeconds for how long to wait before the next run (0 to go again at once, more when waiting on something slow), or stop: true with a reason once the work is done or cannot go on. Without that call the loop ends.`;
+		return { message: { customType: "loop", content, display: false } };
 	});
 
 	pi.on("agent_start", (_event, ctx) => {
