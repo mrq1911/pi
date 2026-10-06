@@ -48,8 +48,8 @@ import {
 import { exportSessionForShare } from "../../modes/interactive/session-share.ts";
 import { getChangelogPath, normalizeChangelogLinks, parseChangelog } from "../../utils/changelog.ts";
 import { copyToClipboard } from "../../utils/clipboard.ts";
-import { ATTR_BOLD, LINE_DOUBLE_BOTTOM, LINE_DOUBLE_TOP, LINE_SINGLE, type Line } from "./cells.ts";
-import { Charset } from "./charset.ts";
+import { ATTR_BOLD, cellCode, cellSet, LINE_DOUBLE_BOTTOM, LINE_DOUBLE_TOP, LINE_SINGLE, type Line } from "./cells.ts";
+import { Charset, cellToUnicode } from "./charset.ts";
 import { LineEditor } from "./editor.ts";
 import { createExtensionUI } from "./extension-ui.ts";
 import type { InputEvent, TerminalResponse } from "./input.ts";
@@ -68,7 +68,7 @@ import {
 	saverPlace,
 } from "./saver.ts";
 import { SpeedMeter } from "./speed.ts";
-import type { TerminalCapabilities } from "./terminal.ts";
+import { behindVt420, type TerminalCapabilities } from "./terminal.ts";
 import { formatAge, formatDuration, padCells, spaces, truncateCells } from "./text.ts";
 import {
 	type BashState,
@@ -363,6 +363,12 @@ export class Vt420App {
 	private lastFrameAt = 0;
 	private saver: SaverMode;
 	private readonly saverHere: boolean;
+	/**
+	 * In an emulator behind vt420-term, zellij's pane among them, the footer goes in the window title, which vt420-term
+	 * shows on the VT420's status line, and its row goes to the transcript.
+	 */
+	private readonly footerInTitle: boolean;
+	private footerTitle = "";
 	private saverMinutes: number;
 	private saverTimer: ReturnType<typeof setTimeout> | undefined;
 	private saverMoveTimer: ReturnType<typeof setInterval> | undefined;
@@ -395,6 +401,7 @@ export class Vt420App {
 		// a CRT keeps a picture shown for hours; an emulator, zellij-vt420 included, or a terminal that does not say what it
 		// is, gets no screen saver, whatever the setting
 		this.saverHere = !caps.unicode && caps.level >= 4;
+		this.footerInTitle = caps.unicode && !caps.statusLine && behindVt420() !== undefined;
 		this.saverMinutes = options.screensaverMinutes ?? SAVER_MINUTES;
 		this.extensionUI = createExtensionUI({
 			select: (title, items, signal) => this.dialogSelect(title, items, signal),
@@ -459,6 +466,8 @@ export class Vt420App {
 		}
 		await exited;
 		this.closed = true;
+		// the next program's title, not pi's footer
+		if (this.footerInTitle) this.io.write("\x1b]2;\x1b\\");
 		this.unsubscribe?.();
 		this.runtime.setRebindSession(undefined);
 		this.loginController?.abort();
@@ -1608,7 +1617,7 @@ export class Vt420App {
 			this.notice("warning", "No agent messages to copy yet");
 			return;
 		}
-		if (this.io.caps.unicode && !process.env.VT420_TERM) {
+		if (this.io.caps.unicode && !behindVt420()) {
 			const encoded = Buffer.from(text, "utf8").toString("base64");
 			if (encoded.length > 100_000) {
 				this.notice("error", "Clipboard unavailable: the text exceeds the OSC 52 size limit");
@@ -2654,14 +2663,15 @@ export class Vt420App {
 		const maxInput = Math.max(1, Math.min(8, Math.floor(rows / 4)));
 		const inputTop = Math.max(0, Math.min(input.cursorRow - maxInput + 1, input.rows.length - maxInput));
 		const shownInput = input.rows.slice(inputTop, inputTop + maxInput);
-		const footerRows = statusLine ? 0 : 1;
-		const regionHeight = Math.max(1, rows - 1 - shownInput.length - footerRows);
+		const footerRow = !statusLine && !this.footerInTitle;
+		const regionHeight = Math.max(1, rows - 1 - shownInput.length - (footerRow ? 1 : 0));
 		this.regionHeight = regionHeight;
 		const lines = this.regionLines(regionHeight, columns);
 		lines.push({ cells: this.separator(columns), attr: LINE_SINGLE });
 		for (const row of shownInput) lines.push({ cells: row, attr: LINE_SINGLE });
 		const footer = this.footerCells(columns);
-		if (!statusLine) lines.push({ cells: footer, attr: LINE_SINGLE });
+		if (footerRow) lines.push({ cells: footer, attr: LINE_SINGLE });
+		if (this.footerInTitle) this.titleFooter(footer);
 		const cursorVisible = this.mode.kind !== "help";
 		return {
 			lines,
@@ -2927,6 +2937,18 @@ export class Vt420App {
 	}
 
 	/** Tokens in and out, generation speed, context use and the directory, right-aligned to leave room under the prompt. */
+	/** The footer as the window title, π first so vt420-term knows it for pi's; written when it changes. */
+	private titleFooter(footer: readonly number[]): void {
+		const supplemental = this.io.caps.supplemental;
+		const text = footer
+			.map((cell) => cellToUnicode(cellSet(cell), cellCode(cell), supplemental))
+			.join("")
+			.trim();
+		if (text === this.footerTitle) return;
+		this.footerTitle = text;
+		this.io.write(`\x1b]2;π ${text}\x1b\\`);
+	}
+
 	private footerCells(width: number): number[] {
 		const charset = this.charset;
 		const stats = this.footer;

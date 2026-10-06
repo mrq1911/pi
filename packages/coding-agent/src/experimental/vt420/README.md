@@ -100,8 +100,11 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
   code stays plain. `--double-size on|off` overrides the detection. Terminals without a status line keep the footer
   on the bottom row, and ones without rectangle operations do without the shine. An emulator is never named after
   the DEC terminal its DA2 claims (zellij and xterm.js say VT100); under
-  [vt420-term](https://github.com/mrq1911/vt420-term), which sets `VT420_TERM`, the banner names the terminal at the
-  end of the line.
+  [vt420-term](https://github.com/mrq1911/vt420-term), which sets `VT420_TERM` (and `LC_VT420_TERM`, which ssh passes on
+  where the server has `AcceptEnv LC_VT420_TERM`), the banner names the terminal at the end of the line, and where pi
+  draws on an emulator in between, such as a zellij pane, the footer goes in the window title, π first, and its row
+  to the transcript: vt420-term shows that title on the VT420's status line, over zellij's bar while zellij is in
+  normal mode.
 
 ## Keys
 

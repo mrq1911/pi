@@ -277,11 +277,19 @@ export function capabilitiesFromProbe(
 }
 
 /**
+ * The terminal vt420-term draws on, when pi runs inside it: VT420_TERM, or LC_VT420_TERM, which ssh passes on where
+ * VT420_TERM would be dropped.
+ */
+export function behindVt420(): string | undefined {
+	return process.env.VT420_TERM || process.env.LC_VT420_TERM || undefined;
+}
+
+/**
  * Emulators claim a DEC type in DA2 (zellij and xterm.js a VT100, kitty a VT220), so the name comes from vt420-term,
  * which says what is at the end of the line, and is plain "terminal" otherwise.
  */
 function emulatorName(): string {
-	const behind = process.env.VT420_TERM;
+	const behind = behindVt420();
 	return behind ? `${behind} via vt420-term` : "terminal";
 }
 

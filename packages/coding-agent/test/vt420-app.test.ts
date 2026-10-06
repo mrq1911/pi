@@ -230,6 +230,28 @@ describe("vt420 app", () => {
 		await app.done;
 	});
 
+	it("puts the footer in the window title behind vt420-term, which shows it on the VT420's status line", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		// what ssh carries from a zellij pane on the VT420's host
+		process.env.LC_VT420_TERM = "VT420";
+		try {
+			const app = await start(harness, { unicode: true, supplemental: "latin1", statusLine: false });
+			const titles = app.output.join("").match(/\x1b\]2;[^\x1b]*\x1b\\/g) ?? [];
+			expect(titles.at(-1)).toMatch(/^\x1b\]2;π ↑0 ↓0 · .+\x1b\\$/);
+			// the footer's row is the transcript's: nothing but the editor below the separator
+			const rows = app.emulator.screen();
+			expect(rows.at(-1)).not.toContain("↑0 ↓0");
+			expect(rows.some((row) => row.includes("↑0 ↓0"))).toBe(false);
+			await app.key("ctrl+d");
+			await app.done;
+			// and on the way out the title is left to the next program
+			expect(app.output.join("")).toMatch(/\x1b\]2;\x1b\\$/);
+		} finally {
+			delete process.env.LC_VT420_TERM;
+		}
+	});
+
 	it("quits on /q as on /quit", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
