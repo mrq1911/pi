@@ -8,7 +8,18 @@
  * display can animate it before the rest follows, as on the terminal, whose input waits while it glides.
  */
 
-import { type CharsetId, charsetFor, DRCS_BASE, ERROR_CHAR, finalFor, glyphIn, is96, isNational } from "./charsets.ts";
+import {
+	type CharsetId,
+	charsetFor,
+	DRCS_BASE,
+	ERROR_CHAR,
+	ERROR_CODE,
+	finalFor,
+	glyphIn,
+	is96,
+	isNational,
+	storedCode,
+} from "./charsets.ts";
 import { Parser, type ParserHandler } from "./parser.ts";
 import { loadSoftFont, type SoftFont } from "./softfont.ts";
 
@@ -20,6 +31,9 @@ export const ATTR_INVISIBLE = 16;
 /** Not a visual attribute: DECSCA's protection from selective erase. */
 export const ATTR_PROTECTED = 32;
 const VISUAL = ATTR_BOLD | ATTR_UNDERLINE | ATTR_BLINK | ATTR_REVERSE | ATTR_INVISIBLE;
+/** A cell's attributes keep the code the terminal stores its character as above these bits; an erased cell has 0. */
+export const CODE_SHIFT = 8;
+export const ATTR_FLAGS = (1 << CODE_SHIFT) - 1;
 
 export const LINE_SINGLE = 0;
 export const LINE_DOUBLE_WIDTH = 1;
@@ -66,6 +80,8 @@ export interface Vt420Setup {
 	xoff: number;
 	/** The DA1 answer: the terminal itself or one it poses as. */
 	alias: "vt420" | "vt320" | "vt220" | "vt100";
+	/** The worldwide model, with the national replacement sets; the North American one has none. */
+	worldwide: boolean;
 }
 
 /** The VT420 as it leaves the factory: the defaults of the programmer reference. */
@@ -91,6 +107,7 @@ export const FACTORY_SETUP: Vt420Setup = {
 	transmitLimited: false,
 	xoff: 64,
 	alias: "vt420",
+	worldwide: false,
 };
 
 /** The Set-Up pi-vt420 and vt420-term are made for, which their READMEs list: jump scroll, XOFF at 128, keys locked. */
@@ -149,7 +166,44 @@ interface SavedCursor {
 /** Pages of page memory for each page length, one session (DECSLPP). */
 const PAGE_ARRANGEMENTS: Readonly<Record<number, number>> = { 24: 6, 25: 5, 36: 4, 48: 3, 72: 2, 144: 1 };
 
-const DEFAULT_DESIGNATIONS: readonly CharsetId[] = ["ascii", "ascii", "dec-supplemental", "dec-supplemental"];
+/** ASCII in G0 and G1, the user-preferred supplemental set (`<`) in G2 and G3, as DECCIR reports them. */
+const DEFAULT_DESIGNATIONS: readonly CharsetId[] = ["ascii", "ascii", "user-preferred", "user-preferred"];
+
+/** Local functions on, F1 (Hold) and F3 (Set-Up) local, F2 and F4 sending their codes, Alt not reported. */
+const DEFAULT_LOCAL_FUNCTIONS: ReadonlyMap<number, number> = new Map([
+	[1, 1],
+	[2, 1],
+	[3, 1],
+]);
+const DEFAULT_LOCAL_FUNCTION_KEYS: ReadonlyMap<number, number> = new Map([
+	[1, 1],
+	[2, 2],
+	[3, 1],
+	[4, 2],
+]);
+const DEFAULT_MODIFIER_KEYS: ReadonlyMap<number, number> = new Map([
+	[1, 1],
+	[2, 1],
+	[3, 1],
+	[4, 1],
+	[5, 3],
+	[6, 3],
+	[7, 1],
+	[8, 1],
+]);
+
+/**
+ * How long a VT420 (firmware 1.4) takes over its work, as vt420-probe measured it at 38400 baud: it takes in plain
+ * text at about 2200 characters a second, slower than the line brings it, and a scroll without gliding waits for a
+ * refresh of the screen. A serial line (line.ts) holds input back while the terminal works.
+ */
+export const TIMING = {
+	byteMs: 0.45,
+	jumpScrollMs: 13,
+	glideMs: 94,
+	eraseCellMs: 0.018,
+	fillCellMs: 0.045,
+};
 
 /** UDK and macro memory, in bytes. */
 const UDK_SPACE = 768;
@@ -231,6 +285,8 @@ export class Vt420 implements ParserHandler {
 	smoothScrollEvent: SmoothScroll | undefined;
 	/** Bytes taken in, for tests. */
 	bytes = 0;
+	/** Milliseconds of work the bytes taken in since this was last cleared would take the terminal (see TIMING). */
+	busyMs = 0;
 	readonly parser: Parser;
 	private readonly options: Vt420Options;
 	private saved: SavedCursor | undefined;
@@ -240,6 +296,12 @@ export class Vt420 implements ParserHandler {
 	private vt52Args: number[] | undefined;
 	private printerMatch = 0;
 	private macroDepth = 0;
+	/** DECELF, DECLFKC and DECSMKR: function or key number to its setting, as a VT420 had them after power-up. */
+	localFunctions = new Map(DEFAULT_LOCAL_FUNCTIONS);
+	localFunctionKeys = new Map(DEFAULT_LOCAL_FUNCTION_KEYS);
+	modifierKeys = new Map(DEFAULT_MODIFIER_KEYS);
+	/** Data integrity (DSR 75): not reported since power-up, an error on the line since the last report, or none. */
+	integrity: "unreported" | "ok" | "error" = "unreported";
 	private glide = false;
 
 	constructor(options: Vt420Options = {}) {
@@ -280,6 +342,7 @@ export class Vt420 implements ParserHandler {
 		for (let i = start; i < end; i++) {
 			const code = bytes[i]!;
 			this.bytes++;
+			this.busyMs += TIMING.byteMs;
 			if (this.printerController) {
 				this.printerByte(code);
 				continue;
@@ -312,7 +375,7 @@ export class Vt420 implements ParserHandler {
 	}
 
 	attrsAt(row: number, col: number): number {
-		return this.lines[row]!.attrs[col]!;
+		return this.lines[row]!.attrs[col]! & ATTR_FLAGS;
 	}
 
 	lineAttr(row: number): number {
@@ -376,6 +439,9 @@ export class Vt420 implements ParserHandler {
 		this.udkLocked = setup.udkLocked;
 		this.macros.clear();
 		this.softFonts = [];
+		this.localFunctions = new Map(DEFAULT_LOCAL_FUNCTIONS);
+		this.localFunctionKeys = new Map(DEFAULT_LOCAL_FUNCTION_KEYS);
+		this.integrity = "unreported";
 		this.printerController = false;
 		this.screenReverse = false;
 		this.smoothScroll = setup.smoothScroll;
@@ -444,6 +510,7 @@ export class Vt420 implements ParserHandler {
 		this.keypadApplication = false;
 		this.cursorKeysApplication = false;
 		this.keyPositionMode = false;
+		this.modifierKeys = new Map(DEFAULT_MODIFIER_KEYS);
 		this.leftRightMarginMode = false;
 		this.top = 0;
 		this.bottom = this.pageLines - 1;
@@ -469,6 +536,7 @@ export class Vt420 implements ParserHandler {
 			return;
 		}
 		let char: string | undefined;
+		let stored = code;
 		if (code >= 0x80 && this.options.utf8) {
 			char = String.fromCodePoint(code);
 			this.singleShift = 0;
@@ -477,13 +545,21 @@ export class Vt420 implements ParserHandler {
 			this.singleShift = 0;
 			const id = this.vt52 ? (this.vt52Graphics && code >= 0x5f ? "graphics" : "ascii") : this.designations[set]!;
 			const seven = code & 0x7f;
-			const wide = is96(id, this.softFontFor(id)?.size96 ?? false);
+			const wide = is96(id, this.softFontFor(id)?.size96 ?? false, this.userPreferred);
 			if (seven === 0x7f && !wide) return;
-			if (seven === 0x20 && !wide) char = " ";
-			else if (id === "drcs" && !this.softFontFor(id)) char = ERROR_CHAR;
-			else char = glyphIn(id, seven) ?? ERROR_CHAR;
+			// a space in GL is a space whatever the set; 0xA0 in a 94-character set is not a character
+			const glyph =
+				code === 0x20
+					? " "
+					: seven === 0x20 && !wide
+						? undefined
+						: id === "drcs" && !this.softFontFor(id)
+							? undefined
+							: glyphIn(id, seven, this.userPreferred);
+			char = glyph ?? ERROR_CHAR;
+			stored = glyph === undefined ? ERROR_CODE : storedCode(id, seven, this.userPreferred);
 		}
-		this.put(char);
+		this.put(char, stored);
 		this.couple();
 	}
 
@@ -543,7 +619,7 @@ export class Vt420 implements ParserHandler {
 
 	substitute(): void {
 		this.vt52Args = undefined;
-		this.put(ERROR_CHAR);
+		this.put(ERROR_CHAR, ERROR_CODE);
 		this.couple();
 	}
 
@@ -648,10 +724,10 @@ export class Vt420 implements ParserHandler {
 		const size96 = slot96 > 0;
 		const slot = size96 ? slot96 : slot94;
 		const font = this.softFonts.find((candidate) => candidate.name === name && candidate.size96 === size96);
-		const id: CharsetId | undefined = font ? "drcs" : charsetFor(name, size96, this.userPreferred);
+		const id: CharsetId | undefined = font ? "drcs" : charsetFor(name, size96);
 		if (id === undefined) return;
-		// national sets in national mode only (the British one is a VT100's too)
-		if (isNational(id) && id !== "british" && !this.national) return;
+		// national sets on the worldwide model, in national mode (the British one is a VT100's too)
+		if (isNational(id) && (!this.setup.worldwide || (id !== "british" && !this.national))) return;
 		if (this.level === 1 && !["ascii", "graphics"].includes(id) && !isNational(id)) return;
 		if (id === "drcs") this.drcsName = name;
 		this.designations[slot] = id;
@@ -677,7 +753,7 @@ export class Vt420 implements ParserHandler {
 			// DECALN: the page filled with E, margins to the page, the cursor home
 			for (const line of this.lines) {
 				line.chars.fill("E");
-				line.attrs.fill(0);
+				line.attrs.fill(0x45 << CODE_SHIFT);
 				line.lineAttr = LINE_SINGLE;
 			}
 			this.top = 0;
@@ -881,18 +957,20 @@ export class Vt420 implements ParserHandler {
 			case "?l":
 				for (const mode of params) this.privateMode(mode, final === "h");
 				return;
+			// the terminal keeps the mode asked about in a byte: 999 comes back as 255
 			case "$p":
-				this.respond(`${this.CSI}${params[0] ?? 0};${this.ansiModeValue(params[0] ?? 0)}$y`);
+				this.respond(`${this.CSI}${Math.min(255, params[0] ?? 0)};${this.ansiModeValue(params[0] ?? 0)}$y`);
 				return;
 			case "?$p":
-				this.respond(`${this.CSI}?${params[0] ?? 0};${this.privateModeValue(params[0] ?? 0)}$y`);
+				this.respond(`${this.CSI}?${Math.min(255, params[0] ?? 0)};${this.privateModeValue(params[0] ?? 0)}$y`);
 				return;
 			case "c":
 				if ((params[0] ?? 0) === 0) this.identify(true);
 				return;
 			case ">c":
 				if ((params[0] ?? 0) !== 0 || this.level < 2) return;
-				this.respond(this.options.identity === "vt220" ? "\x1b[>1;10;0c" : `${this.CSI}>41;10;0c`);
+				// firmware 1.4, as the VT420 this was measured on says
+				this.respond(this.options.identity === "vt220" ? "\x1b[>1;10;0c" : `${this.CSI}>41;14;0c`);
 				return;
 			case "=c":
 				if ((params[0] ?? 0) === 0 && this.level > 1) this.respond(`${this.DCS}!|00000000${this.ST}`);
@@ -935,6 +1013,15 @@ export class Vt420 implements ParserHandler {
 				return;
 			case "*x":
 				this.attributeExtent = params[0] ?? 0;
+				return;
+			case "+q":
+				setPairs(this.localFunctions, DEFAULT_LOCAL_FUNCTIONS, params);
+				return;
+			case "*}":
+				setPairs(this.localFunctionKeys, DEFAULT_LOCAL_FUNCTION_KEYS, params);
+				return;
+			case "+r":
+				setPairs(this.modifierKeys, DEFAULT_MODIFIER_KEYS, params);
 				return;
 			case "$v":
 				this.copyRectangle(params);
@@ -1029,7 +1116,8 @@ export class Vt420 implements ParserHandler {
 		return this.col >= this.left && this.col <= this.right;
 	}
 
-	private put(char: string): void {
+	/** A character, kept with the code it has in the terminal (see storedCode). */
+	private put(char: string, code: number): void {
 		if (this.statusActive) {
 			// the status line does not wrap: its last column takes whatever comes
 			const line = this.status;
@@ -1038,7 +1126,7 @@ export class Vt420 implements ParserHandler {
 				line.attrs.copyWithin(this.statusCol + 1, this.statusCol, this.columns - 1);
 			}
 			line.chars[this.statusCol] = char;
-			line.attrs[this.statusCol] = this.cellAttrs();
+			line.attrs[this.statusCol] = this.cellAttrs(code);
 			if (this.statusCol < this.columns - 1) this.statusCol++;
 			return;
 		}
@@ -1055,13 +1143,13 @@ export class Vt420 implements ParserHandler {
 			line.attrs.copyWithin(this.col + 1, this.col, limit);
 		}
 		line.chars[this.col] = char;
-		line.attrs[this.col] = this.cellAttrs();
+		line.attrs[this.col] = this.cellAttrs(code);
 		if (this.col < limit) this.col++;
 		else if (this.autowrap) this.pendingWrap = true;
 	}
 
-	private cellAttrs(): number {
-		return this.sgr | (this.protect ? ATTR_PROTECTED : 0);
+	private cellAttrs(code: number): number {
+		return this.sgr | (this.protect ? ATTR_PROTECTED : 0) | (code << CODE_SHIFT);
 	}
 
 	private backspace(): void {
@@ -1156,7 +1244,7 @@ export class Vt420 implements ParserHandler {
 		) {
 			const lost = direction === 1 ? lines[this.top]! : lines[this.bottom]!;
 			this.smoothScrollEvent = { top: this.top, bottom: this.bottom, direction, lost: copyLine(lost) };
-		}
+		} else this.busyMs += TIMING.jumpScrollMs * count;
 		for (let i = 0; i < count; i++) {
 			if (full) {
 				if (direction === 1) {
@@ -1334,7 +1422,10 @@ export class Vt420 implements ParserHandler {
 		const lines = this.lines;
 		const whole = (row: number): void => {
 			if (selective) this.eraseCells(lines[row]!, 0, this.columns, true);
-			else lines[row] = this.blankLine();
+			else {
+				lines[row] = this.blankLine();
+				this.busyMs += this.columns * TIMING.eraseCellMs;
+			}
 		};
 		if (mode === 0) {
 			this.eraseCells(lines[this.row]!, this.col, this.columns, selective);
@@ -1360,11 +1451,16 @@ export class Vt420 implements ParserHandler {
 	/** Erase cells to blanks without attributes, or with `selective` only the unprotected ones, keeping attributes. */
 	private eraseCells(line: EmuLine, from: number, to: number, selective: boolean): void {
 		to = Math.min(to, this.columns);
+		this.busyMs += Math.max(0, to - from) * TIMING.eraseCellMs;
 		for (let col = Math.max(0, from); col < to; col++) {
 			if (!selective) {
 				line.chars[col] = " ";
 				line.attrs[col] = 0;
-			} else if (!(line.attrs[col]! & ATTR_PROTECTED)) line.chars[col] = " ";
+			} else if (!(line.attrs[col]! & ATTR_PROTECTED)) {
+				// erased, the rendition left as it was
+				line.chars[col] = " ";
+				line.attrs[col] = line.attrs[col]! & VISUAL;
+			}
 		}
 	}
 
@@ -1584,7 +1680,7 @@ export class Vt420 implements ParserHandler {
 				this.cursorVisible = set;
 				return;
 			case 42:
-				if (this.level < 2 || set === this.national) return;
+				if (this.level < 2 || set === this.national || !this.setup.worldwide) return;
 				this.national = set;
 				this.designations = this.defaultDesignations();
 				this.gl = 0;
@@ -1631,9 +1727,9 @@ export class Vt420 implements ParserHandler {
 	}
 
 	private ansiModeValue(mode: number): number {
+		if (mode === 3) return 4;
 		const values: Record<number, boolean> = {
 			2: this.keyboardLocked,
-			3: false,
 			4: this.insertMode,
 			12: !this.localEcho,
 			20: this.newLine,
@@ -1656,7 +1752,6 @@ export class Vt420 implements ParserHandler {
 			19: this.printExtent,
 			25: this.cursorVisible,
 			42: this.national,
-			60: this.horizontalCoupling,
 			61: this.verticalCoupling,
 			64: this.pageCoupling,
 			66: this.keypadApplication,
@@ -1667,6 +1762,7 @@ export class Vt420 implements ParserHandler {
 			81: this.keyPositionMode,
 		};
 		if (this.options.unknownModes?.includes(mode)) return 0;
+		if (mode === 60 || (mode === 42 && !this.setup.worldwide)) return 4;
 		return mode in values ? (values[mode] ? 1 : 2) : 0;
 	}
 
@@ -1808,12 +1904,21 @@ export class Vt420 implements ParserHandler {
 		const area = this.rectangle(params, 1);
 		if (!area) return;
 		const id = this.designations[code >= 0x80 ? this.gr : this.gl]!;
-		const char = (code & 0x7f) === 0x20 && !is96(id, false) ? " " : (glyphIn(id, code & 0x7f) ?? ERROR_CHAR);
+		const seven = code & 0x7f;
+		const glyph =
+			code === 0x20
+				? " "
+				: seven === 0x20 && !is96(id, false, this.userPreferred)
+					? undefined
+					: glyphIn(id, seven, this.userPreferred);
+		const char = glyph ?? ERROR_CHAR;
+		const attrs = this.cellAttrs(glyph === undefined ? ERROR_CODE : storedCode(id, seven, this.userPreferred));
 		const [top, left, bottom, right] = area;
+		this.busyMs += (bottom - top + 1) * (right - left + 1) * TIMING.fillCellMs;
 		for (let row = top; row <= bottom; row++) {
 			const line = this.lines[row]!;
 			line.chars.fill(char, left, right + 1);
-			line.attrs.fill(this.cellAttrs(), left, right + 1);
+			line.attrs.fill(attrs, left, right + 1);
 		}
 	}
 
@@ -1833,6 +1938,7 @@ export class Vt420 implements ParserHandler {
 		// bold, underline, blink and negative image only: invisible is not among them
 		const values = (params.length > 4 ? params.slice(4) : [0]).filter((value) => value !== 8 && value !== 28);
 		const [top, left, bottom, right] = area;
+		this.busyMs += (bottom - top + 1) * (right - left + 1) * TIMING.fillCellMs;
 		const rectangle = this.attributeExtent === 2;
 		for (let row = top; row <= bottom; row++) {
 			const line = this.lines[row]!;
@@ -1850,18 +1956,16 @@ export class Vt420 implements ParserHandler {
 		const id = params[0] ?? 0;
 		const page = params[1] ?? 0;
 		let sum = 0;
+		// as a VT420 sums them: the stored code (0 for an erased cell) and a weight for each attribute but invisible
 		const add = (line: EmuLine, from: number, to: number): void => {
 			for (let col = from; col <= to; col++) {
-				const char = line.chars[col]!;
 				const attrs = line.attrs[col]!;
-				const code = char.charCodeAt(0);
-				sum += code < 0x100 ? code : 0x3f;
-				if (attrs & ATTR_BOLD) sum += 0x80;
-				if (attrs & ATTR_UNDERLINE) sum += 0x40;
-				if (attrs & ATTR_BLINK) sum += 0x20;
-				if (attrs & ATTR_REVERSE) sum += 0x10;
-				if (attrs & ATTR_INVISIBLE) sum += 0x08;
-				if (attrs & ATTR_PROTECTED) sum += 0x04;
+				sum += attrs >> CODE_SHIFT;
+				if (attrs & ATTR_UNDERLINE) sum += 0x400;
+				if (attrs & ATTR_PROTECTED) sum += 0x800;
+				if (attrs & ATTR_BOLD) sum += 0x2000;
+				if (attrs & ATTR_REVERSE) sum += 0x4000;
+				if (attrs & ATTR_BLINK) sum += 0x8000;
 			}
 		};
 		if (page === 0) {
@@ -1914,7 +2018,8 @@ export class Vt420 implements ParserHandler {
 			return;
 		}
 		const answers: Record<Vt420Setup["alias"], string> = {
-			vt420: "?64;1;2;6;7;8;9;15;18;19;21c",
+			// 9, the national replacement sets, on the worldwide model only
+			vt420: this.setup.worldwide ? "?64;1;2;6;7;8;9;15;18;19;21c" : "?64;1;2;6;7;8;15;18;19;21c",
 			vt320: "?63;1;2;6;7;8;9c",
 			vt220: "?62;1;2;6;7;8;9c",
 			vt100: "?1;2c",
@@ -1963,7 +2068,9 @@ export class Vt420 implements ParserHandler {
 				return;
 			}
 			case 75:
-				this.respond(`${this.CSI}?70n`);
+				// not reported since power-up, an error on the line since the last report, or all well
+				this.respond(`${this.CSI}?${this.integrity === "unreported" ? 73 : this.integrity === "error" ? 71 : 70}n`);
+				this.integrity = "ok";
 				return;
 			case 85:
 				this.respond(`${this.CSI}?83n`);
@@ -1971,8 +2078,10 @@ export class Vt420 implements ParserHandler {
 		}
 	}
 
+	/** DECRQSS. A VT420 answers 1 for a request it knows and 0 for one it does not, the other way round from the
+	 * programmer reference. */
 	private reportSetting(request: string): void {
-		const ok = (value: string): void => this.respond(`${this.DCS}0$r${value}${this.ST}`);
+		const ok = (value: string): void => this.respond(`${this.DCS}1$r${value}${this.ST}`);
 		switch (request) {
 			case "m":
 				ok(`${renditionParams(this.sgr)}m`);
@@ -2007,8 +2116,17 @@ export class Vt420 implements ParserHandler {
 			case "*x":
 				ok(`${this.attributeExtent}*x`);
 				return;
+			case "+q":
+				ok(`${pairs(this.localFunctions)}+q`);
+				return;
+			case "*}":
+				ok(`${pairs(this.localFunctionKeys)}*}`);
+				return;
+			case "+r":
+				ok(`${pairs(this.modifierKeys)}+r`);
+				return;
 		}
-		this.respond(`${this.DCS}1$r${this.ST}`);
+		this.respond(`${this.DCS}0$r${this.ST}`);
 	}
 
 	/** DECCIR's data: the cursor, its rendition and flags, and the character sets (Chapter 12). */
@@ -2028,7 +2146,10 @@ export class Vt420 implements ParserHandler {
 			(this.singleShift === 2 ? 2 : 0) |
 			(this.originMode ? 1 : 0);
 		const font96 = this.softFontFor("drcs")?.size96 ?? false;
-		const size = this.designations.reduce((bits, id, slot) => bits | (is96(id, font96) ? 1 << slot : 0), 0x40);
+		const size = this.designations.reduce(
+			(bits, id, slot) => bits | (is96(id, font96, this.userPreferred) ? 1 << slot : 0),
+			0x40,
+		);
 		const names = this.designations.map((id) => finalFor(id, this.drcsName)).join("");
 		return [
 			this.row + 1,
@@ -2081,7 +2202,7 @@ export class Vt420 implements ParserHandler {
 			const code = char.charCodeAt(0);
 			if (code >= 0x20 && code <= 0x2f) continue;
 			const font = this.softFonts.find((candidate) => candidate.name === name);
-			const id = font ? "drcs" : charsetFor(name, (sizes & (1 << slot)) !== 0, this.userPreferred);
+			const id = font ? "drcs" : charsetFor(name, (sizes & (1 << slot)) !== 0);
 			if (id && slot < 4) this.designations[slot] = id;
 			if (font) this.drcsName = name;
 			slot++;
@@ -2273,22 +2394,86 @@ export interface TerminalState {
 	userPreferred: string;
 }
 
-/** DECTSR's format is the terminal's own; this one is JSON in hex, so nothing in it can end the string early. */
+/** The character sets in DECTSR, by their place here. */
+const STATE_CHARSETS: readonly CharsetId[] = [
+	"ascii",
+	"graphics",
+	"technical",
+	"dec-supplemental",
+	"latin1",
+	"user-preferred",
+	"drcs",
+	"british",
+	"finnish",
+	"french",
+	"french-canadian",
+	"german",
+	"italian",
+	"norwegian",
+	"portuguese",
+	"spanish",
+	"swedish",
+	"swiss",
+];
+
+/**
+ * DECTSR's data is the terminal's own. A VT420's is characters from @ to O, four bits each, and so is this one: a
+ * byte for each number of the state, the modes a bit each, short enough to go out at 175 characters a second.
+ */
 function encodeState(state: TerminalState): string {
-	let out = "";
-	for (const char of JSON.stringify(state)) out += char.charCodeAt(0).toString(16).padStart(2, "0").toUpperCase();
-	return out;
+	const modeBytes = new Array<number>(Math.ceil(STATE_MODES.length / 8)).fill(0);
+	STATE_MODES.forEach((mode, i) => {
+		if (state.modes[mode]) modeBytes[i >> 3]! |= 1 << (i & 7);
+	});
+	const numbers = [
+		state.columns === 132 ? 1 : 0,
+		state.screenLines,
+		state.pageLines,
+		state.statusType,
+		state.top,
+		state.bottom,
+		state.left,
+		state.right,
+		state.sgr,
+		...state.designations.map((id) => Math.max(0, STATE_CHARSETS.indexOf(id as CharsetId))),
+		state.gl,
+		state.gr,
+		state.attributeExtent,
+		state.userPreferred === "latin1" ? 1 : 0,
+		...modeBytes,
+	];
+	return numbers.map((n) => String.fromCharCode(0x40 + ((n >> 4) & 15), 0x40 + (n & 15))).join("");
 }
 
 function decodeState(data: string): TerminalState | undefined {
-	const text = decodeHex(data);
-	if (text === undefined) return undefined;
-	try {
-		const state = JSON.parse(text) as TerminalState;
-		return typeof state === "object" && state !== null && typeof state.modes === "object" ? state : undefined;
-	} catch {
-		return undefined;
-	}
+	if (data.length % 2 !== 0 || /[^@-O]/.test(data)) return undefined;
+	const numbers: number[] = [];
+	for (let at = 0; at < data.length; at += 2)
+		numbers.push(((data.charCodeAt(at) - 0x40) << 4) | (data.charCodeAt(at + 1) - 0x40));
+	const modeBytes = Math.ceil(STATE_MODES.length / 8);
+	if (numbers.length !== 17 + modeBytes) return undefined;
+	const n = (index: number): number => numbers[index]!;
+	const modes: Record<string, boolean> = {};
+	STATE_MODES.forEach((mode, i) => {
+		modes[mode] = (n(17 + (i >> 3)) & (1 << (i & 7))) !== 0;
+	});
+	return {
+		columns: n(0) === 1 ? 132 : 80,
+		screenLines: n(1),
+		pageLines: n(2),
+		statusType: n(3),
+		top: n(4),
+		bottom: n(5),
+		left: n(6),
+		right: n(7),
+		sgr: n(8),
+		designations: [9, 10, 11, 12].map((index) => STATE_CHARSETS[n(index)] ?? "ascii"),
+		gl: n(13),
+		gr: n(14),
+		attributeExtent: n(15),
+		userPreferred: n(16) === 1 ? "latin1" : "dec",
+		modes,
+	};
 }
 
 function decodeHex(hex: string): string | undefined {
@@ -2296,6 +2481,22 @@ function decodeHex(hex: string): string | undefined {
 	let out = "";
 	for (let i = 0; i < hex.length; i += 2) out += String.fromCharCode(Number.parseInt(hex.slice(i, i + 2), 16));
 	return out;
+}
+
+/** A setting's pairs, as DECRQSS reports DECELF, DECLFKC and DECSMKR. */
+function pairs(settings: ReadonlyMap<number, number>): string {
+	return [...settings].flat().join(";");
+}
+
+/** DECELF, DECLFKC or DECSMKR: pairs of what and how, 0 for all of them and 0 for the default. */
+function setPairs(settings: Map<number, number>, defaults: ReadonlyMap<number, number>, params: number[]): void {
+	for (let i = 0; i + 1 < params.length; i += 2) {
+		const which = params[i]!;
+		const how = params[i + 1]!;
+		for (const key of which === 0 ? [...defaults.keys()] : [which]) {
+			if (defaults.has(key)) settings.set(key, how === 0 ? defaults.get(key)! : how);
+		}
+	}
 }
 
 function hex4(value: number): string {

@@ -10,7 +10,7 @@
  * does. Time comes from a clock: the real one, or a manual one that tests move a step at a time.
  */
 
-import type { SmoothScroll, Vt420 } from "./vt420.ts";
+import { type SmoothScroll, TIMING, type Vt420 } from "./vt420.ts";
 
 export interface Clock {
 	/** Milliseconds. */
@@ -70,10 +70,10 @@ export interface LineOptions {
 	 * or two. Undefined for a host that never stops, as a tty that ssh took ixon from.
 	 */
 	hostStopsAfter?: number;
-	/** How long a smooth scroll takes to glide a line; the terminal takes nothing in meanwhile. */
-	glideMs: number;
-	/** How long the terminal takes over each character it takes in; 0 for at once. */
-	processMs?: number;
+	/** How long a smooth scroll takes to glide a line, the terminal taking nothing in meanwhile; a VT420's by default. */
+	glideMs?: number;
+	/** False takes everything in at once but the glides, rather than at the terminal's own pace (see TIMING). */
+	timing?: boolean;
 	clock?: Clock;
 	/** What reaches the host: answers and typed keys, as bytes in a latin1 string. XON and XOFF go to `onFlow`. */
 	onHost?: (bytes: string) => void;
@@ -273,6 +273,7 @@ export class SerialLine {
 		}
 		if (this.buffer.length >= BUFFER) {
 			this.stats.lost++;
+			if (this.term) this.term.integrity = "error";
 			if (flow > 0) this.sendFlow(XOFF);
 			return;
 		}
@@ -290,24 +291,25 @@ export class SerialLine {
 		this.process();
 	}
 
-	/** Take in what the buffer holds, until a line is to glide. */
+	/** Take in what the buffer holds, a character at a time as the terminal gets through its work. */
 	private process(): void {
 		const term = this.term;
 		if (!term) return;
+		const timed = this.options.timing !== false;
+		const glideMs = this.options.glideMs ?? TIMING.glideMs;
 		while (this.busyUntil === undefined && !this.held && this.buffer.length > 0) {
 			const bytes = Uint8Array.from(this.buffer);
-			const processMs = this.options.processMs ?? 0;
-			// one character at a time when each takes a while, so the buffer fills as on the terminal
-			const end = processMs > 0 ? 1 : bytes.length;
-			const used = term.write(bytes, 0, end, this.options.glideMs > 0);
+			term.busyMs = 0;
+			const used = term.write(bytes, 0, timed ? 1 : bytes.length, glideMs > 0);
 			this.buffer.splice(0, used);
+			const work = timed ? term.busyMs : 0;
 			const event = term.smoothScrollEvent;
 			if (event) {
 				term.smoothScrollEvent = undefined;
 				this.stats.glides++;
-				this.busyUntil = this.time + this.options.glideMs + used * processMs;
-				this.options.onGlide?.(event, this.options.glideMs);
-			} else if (processMs > 0) this.busyUntil = this.time + used * processMs;
+				this.busyUntil = this.time + glideMs + work;
+				this.options.onGlide?.(event, glideMs);
+			} else if (work > 0) this.busyUntil = this.time + work;
 			if (used === 0) break;
 		}
 		if (this.buffer.length <= XON_POINT && this.lastFlow === XOFF) {

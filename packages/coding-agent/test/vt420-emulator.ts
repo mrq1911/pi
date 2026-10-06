@@ -8,6 +8,7 @@ import { cellToUnicode, type SupplementalSet } from "../src/experimental/vt420/c
 import {
 	ATTR_BLINK,
 	ATTR_BOLD,
+	ATTR_FLAGS,
 	ATTR_REVERSE,
 	ATTR_UNDERLINE,
 	RECOMMENDED_SETUP,
@@ -28,6 +29,8 @@ export const EMU_BOLD = ATTR_BOLD;
 export const EMU_UNDERLINE = ATTR_UNDERLINE;
 export const EMU_BLINK = ATTR_BLINK;
 export const EMU_REVERSE = ATTR_REVERSE;
+/** A cell's attributes without the code its character is kept as. */
+export const EMU_FLAGS = ATTR_FLAGS;
 
 export interface EmulatorOptions {
 	rows?: number;

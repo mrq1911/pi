@@ -17,6 +17,8 @@ export type CharsetId =
 	| "technical"
 	| "dec-supplemental"
 	| "latin1"
+	/** `<`: whichever of DEC Supplemental and ISO Latin-1 Set-Up or DECAUPSS prefers, now. */
+	| "user-preferred"
 	| "drcs"
 	| "british"
 	| "finnish"
@@ -32,6 +34,9 @@ export type CharsetId =
 
 /** The reversed question mark the VT420 shows for a character it has no glyph for. */
 export const ERROR_CHAR = "⸮";
+
+/** The code the error character is kept as (see storedCode). */
+export const ERROR_CODE = 0x101a;
 
 /** Soft characters are kept as these code points, their position in the set added. */
 export const DRCS_BASE = 0xf0000;
@@ -87,8 +92,8 @@ export function isNational(id: CharsetId): boolean {
 }
 
 /** The set an SCS final names, or undefined for one the terminal does not have. */
-export function charsetFor(final: string, size96: boolean, userPreferred: "dec" | "latin1"): CharsetId | undefined {
-	if (final === "<") return userPreferred === "latin1" ? "latin1" : "dec-supplemental";
+export function charsetFor(final: string, size96: boolean): CharsetId | undefined {
+	if (final === "<") return "user-preferred";
 	if (size96) return final === "A" ? "latin1" : undefined;
 	return FINALS_94[final];
 }
@@ -96,18 +101,45 @@ export function charsetFor(final: string, size96: boolean, userPreferred: "dec" 
 /** The final an SCS sequence would use for a set, as DECCIR reports it. */
 export function finalFor(id: CharsetId, drcsName: string): string {
 	if (id === "drcs") return drcsName;
+	if (id === "user-preferred") return "<";
 	if (id === "latin1") return "A";
 	if (id === "dec-supplemental") return "%5";
 	return Object.entries(FINALS_94).find(([, value]) => value === id)?.[0] ?? "B";
 }
 
-export function is96(id: CharsetId, drcs96: boolean): boolean {
-	return id === "latin1" || (id === "drcs" && drcs96);
+export function is96(id: CharsetId, drcs96: boolean, userPreferred: "dec" | "latin1"): boolean {
+	return id === "latin1" || (id === "drcs" && drcs96) || (id === "user-preferred" && userPreferred === "latin1");
+}
+
+/**
+ * The code the terminal keeps a character as, which DECRQCRA sums, as measured on a VT420: ASCII and the national
+ * sets as they are, the supplemental sets from 0x80, line drawing from 0 (0x5F is 0) and DEC Technical from 0x1000.
+ * Soft characters are a guess.
+ */
+export function storedCode(id: CharsetId, code: number, userPreferred: "dec" | "latin1"): number {
+	if (code === 0x20) return 0x20;
+	switch (id) {
+		case "graphics":
+			return code < 0x5f ? code : code - 0x5f;
+		case "technical":
+			return 0x1000 | code;
+		case "dec-supplemental":
+		case "latin1":
+			return 0x80 | code;
+		case "user-preferred":
+			return storedCode(userPreferred === "latin1" ? "latin1" : "dec-supplemental", code, userPreferred);
+		case "drcs":
+			return 0x100 | code;
+		default:
+			return code;
+	}
 }
 
 /** The character a 7-bit code (0x20-0x7F) draws in a set, undefined where the set has nothing. */
-export function glyphIn(id: CharsetId, code: number): string | undefined {
+export function glyphIn(id: CharsetId, code: number, userPreferred: "dec" | "latin1" = "dec"): string | undefined {
 	switch (id) {
+		case "user-preferred":
+			return glyphIn(userPreferred === "latin1" ? "latin1" : "dec-supplemental", code);
 		case "ascii":
 			return code < 0x7f ? String.fromCharCode(code) : undefined;
 		case "graphics":

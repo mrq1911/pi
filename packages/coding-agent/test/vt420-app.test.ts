@@ -11,7 +11,14 @@ import { formatTokens } from "../src/experimental/vt420/widgets.ts";
 import { createHarness, type Harness } from "./suite/harness.ts";
 import { type LineOptions, SerialLine } from "./vt420-emu/line.ts";
 import type { Vt420Setup } from "./vt420-emu/vt420.ts";
-import { EMU_BOLD, EMU_REVERSE, EMU_UNDERLINE, type EmulatorOptions, Vt420Emulator } from "./vt420-emulator.ts";
+import {
+	EMU_BOLD,
+	EMU_FLAGS,
+	EMU_REVERSE,
+	EMU_UNDERLINE,
+	type EmulatorOptions,
+	Vt420Emulator,
+} from "./vt420-emulator.ts";
 
 interface Line {
 	/** How long the terminal takes to answer; a line that loses answers never does. */
@@ -240,7 +247,7 @@ describe("vt420 app", () => {
 		expect(app.emulator.statusText()).not.toContain("π");
 		expect(app.emulator.statusText()).not.toContain("$");
 		expect(app.emulator.statusText()).not.toContain(harness.getModel().id);
-		expect(app.emulator.status.attrs.every((attrs) => attrs === 0)).toBe(true);
+		expect(app.emulator.status.attrs.every((attrs) => (attrs & EMU_FLAGS) === 0)).toBe(true);
 		expect(app.emulator.text(2)).toContain("⎧ VT420");
 		await app.key("ctrl+d");
 		await app.done;
@@ -570,10 +577,11 @@ describe("vt420 app", () => {
 		expect(stats.glides).toBeGreaterThan(10);
 		expect(stats.lost).toBe(0);
 		expect(stats.peak).toBeLessThan(254);
-		// a key wakes it a glide or two later, the transcript where the rain was
+		// a key wakes it a glide or two later, the transcript where the rain was, at the terminal's pace
 		await waitForIdle(harness);
 		await app.type("x");
-		await settle(800);
+		const woken = (): boolean => app.screen().includes("word399") && app.screen().includes("Help keys");
+		for (let wait = 0; wait < 100 && !woken(); wait++) await settle(50);
 		expect(app.screen()).toContain("word399");
 		expect(app.screen()).toContain("Help keys");
 		await app.key("ctrl+d");
