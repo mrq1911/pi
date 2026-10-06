@@ -72,7 +72,10 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
   characters a second, is lifted for the session (DECXRLM) and put back on exit. When answers stop coming, lost on
   the line or held up by Set-Up, Hold Screen or flow control, only a DA1 probe goes out, less often each time, until
   one is answered, so a held terminal never gets a backlog to wade through. XON/XOFF stays on, so Hold Screen works. On a terminal set to smooth scroll, scrolls of more than two lines jump: gliding through a page takes
-  seconds, and what arrives meanwhile would overflow it.
+  seconds, and what arrives meanwhile would overflow it. The tests draw on vt420-term's VT420 (`test/vt420-emu`, a
+  copy of its `src/emu`), and put it behind a model of the serial line: at 38400 baud, with the 254-character input
+  buffer, glides that hold input up and a host that never heeds XOFF, the rain and a long answer on a terminal set up
+  as the factory sets it lose nothing.
 - **Screen saver**: a model can work for hours, and a CRT keeps a picture it shows that long, so after ten minutes
   without a key the screen goes dark, on a VT400-class DEC terminal only: an emulator (zellij-vt420 included) or a
   terminal that does not say what it is gets none, whatever the setting. `progress`, the default, shows one line of

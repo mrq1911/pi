@@ -1,5 +1,5 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { fauxAssistantMessage, fauxThinking, fauxToolCall } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxText, fauxThinking, fauxToolCall } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import { Vt420App, type Vt420AppOptions, type Vt420Io, type Vt420Runtime } from "../src/experimental/vt420/app.ts";
@@ -9,6 +9,8 @@ import { charsetDesignations, SESSION_MODES, statusLineType } from "../src/exper
 import type { TerminalCapabilities } from "../src/experimental/vt420/terminal.ts";
 import { formatTokens } from "../src/experimental/vt420/widgets.ts";
 import { createHarness, type Harness } from "./suite/harness.ts";
+import { type LineOptions, SerialLine } from "./vt420-emu/line.ts";
+import type { Vt420Setup } from "./vt420-emu/vt420.ts";
 import { EMU_BOLD, EMU_REVERSE, EMU_UNDERLINE, type EmulatorOptions, Vt420Emulator } from "./vt420-emulator.ts";
 
 interface Line {
@@ -17,10 +19,14 @@ interface Line {
 	/** Answers one at a time, this long apart at least, as a terminal that takes that long over each piece. */
 	serialMs?: number;
 	drop?: boolean;
+	/** A serial line instead, with the VT420's input buffer, flow control and glides, and its Set-Up. */
+	serial?: Omit<LineOptions, "onHost" | "onFlow" | "clock">;
+	setup?: Partial<Vt420Setup>;
 }
 
 interface Running {
 	emulator: Vt420Emulator;
+	serial: SerialLine | undefined;
 	output: string[];
 	/** Frame requests sent and answered, and the most unanswered at once. */
 	line: { requests: number; answers: number; mostAhead: number; mostBytes: number };
@@ -79,19 +85,26 @@ async function start(
 			respond?.(event.response);
 		},
 	});
+	const serial = line?.serial ? new SerialLine({ ...line.serial, onHost: (bytes) => answers.feed(bytes) }) : undefined;
 	const emulator = new Vt420Emulator({
 		rows: capabilities.rows,
 		columns: capabilities.columns,
 		utf8: capabilities.unicode,
 		statusState,
 		lineAttributes: capabilities.doubleSize !== false,
+		setup: line?.setup,
 		onResponse: (bytes) => {
+			if (serial) {
+				serial.answer(bytes);
+				return;
+			}
 			if (!line || line.drop) return;
 			const at = Math.max(Date.now() + (line.answerDelayMs ?? 0), nextAnswer + (line.serialMs ?? 0));
 			nextAnswer = at;
 			setTimeout(() => answers.feed(bytes), at - Date.now());
 		},
 	});
+	serial?.attach(emulator);
 	emulator.feed(
 		SESSION_MODES +
 			charsetDesignations({
@@ -116,7 +129,9 @@ async function start(
 				counts.mostBytes,
 				inFlight.reduce((sum, length) => sum + length, 0),
 			);
-			emulator.feed(Buffer.from(bytes, capabilities.unicode ? "utf8" : "latin1"));
+			const chunk = Buffer.from(bytes, capabilities.unicode ? "utf8" : "latin1");
+			if (serial) serial.write(chunk);
+			else emulator.feed(chunk);
 		},
 		onInput: (handler) => {
 			listener = handler;
@@ -162,6 +177,7 @@ async function start(
 	};
 	return {
 		emulator,
+		serial,
 		output,
 		line: counts,
 		forks,
@@ -538,6 +554,57 @@ describe("vt420 app", () => {
 		await app.key("ctrl+d");
 		await app.done;
 	});
+
+	it("rains on a VT420 behind ssh, whose tty keeps sending past XOFF, and loses nothing", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		// 38400 baud and a glide of about a ninth of a second; the host never stops for the terminal's XOFF
+		const app = await start(harness, { deviceStatus: true, bytesPerSecond: 3840 }, undefined, {
+			serial: { baud: 38400, glideMs: 110 },
+		});
+		await app.submit("/screensaver matrix");
+		harness.setResponses([fauxAssistantMessage(Array.from({ length: 400 }, (_, i) => `word${i}`).join(" "))]);
+		void harness.session.prompt("talk");
+		await settle(4000);
+		const stats = app.serial!.stats;
+		expect(stats.glides).toBeGreaterThan(10);
+		expect(stats.lost).toBe(0);
+		expect(stats.peak).toBeLessThan(254);
+		// a key wakes it a glide or two later, the transcript where the rain was
+		await waitForIdle(harness);
+		await app.type("x");
+		await settle(800);
+		expect(app.screen()).toContain("word399");
+		expect(app.screen()).toContain("Help keys");
+		await app.key("ctrl+d");
+		await app.done;
+	}, 20_000);
+
+	it("streams an answer to a VT420 set up as the factory sets it, gliding, and loses nothing", async () => {
+		const harness = await createHarness({ tokensPerSecond: 150 });
+		harnesses.push(harness);
+		// smooth scroll as its probe would report it
+		const app = await start(harness, { deviceStatus: true, bytesPerSecond: 3840, smoothScroll: true }, undefined, {
+			serial: { baud: 38400, glideMs: 110 },
+			setup: { smoothScroll: true, xoff: 64 },
+		});
+		harness.setResponses([
+			fauxAssistantMessage([
+				fauxThinking(Array.from({ length: 120 }, (_, i) => `thought${i}`).join(" ")),
+				fauxText(Array.from({ length: 60 }, (_, i) => `Paragraph ${i} of a long answer.`).join("\n\n")),
+			]),
+		]);
+		await app.submit("tell me");
+		for (let wait = 0; wait < 200 && (harness.session.isStreaming || app.serial!.pending > 0); wait++)
+			await settle(50);
+		await settle(500);
+		const stats = app.serial!.stats;
+		expect(stats.glides).toBeGreaterThan(0);
+		expect(stats.lost).toBe(0);
+		expect(app.screen()).toContain("Paragraph 59 of a long answer.");
+		await app.key("ctrl+d");
+		await app.done;
+	}, 30_000);
 
 	it("lets π fall alone while a tool works and there is nothing to rain", async () => {
 		const slow: AgentTool = {
