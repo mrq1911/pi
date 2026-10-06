@@ -163,17 +163,37 @@ reads keys or pasted codes from the keyboard.
 
 ## Terminal setup
 
-- Set-Up: VT400 mode with 7-bit controls, 8 bits no parity, and Data Leads Only unless the other end drives DSR:
-  with Modem Control and no DSR the terminal stops sending and lights Wait. XOFF at 128 where the serial port stops
-  on XOFF by itself, at 64 otherwise.
+VT420 Set-Up, saved:
+
+| Screen | Setting | Why |
+|---|---|---|
+| Communications | Transmit 38400, Receive=Transmit | The serial port's speed; both ends must match |
+| | 8 bits, no parity, 1 stop bit | |
+| | Data Leads Only | With Modem Control and no DSR from the other end the terminal stops sending and lights Wait |
+| | XOFF at 128 | Takes in a whole line of the screen saver's rain while it glides; at 64 the rain stutters. No XOFF also disables Hold Screen |
+| | Unlimited Transmit | pi lifts Limited Transmit for its session anyway (DECXRLM); Unlimited lets the shell outside it answer at full speed too |
+| | Local echo off, Auto Answerback off | |
+| Display | Jump Scroll | pi turns smooth scroll on only where it glides (thinking, rain) and jumps long scrolls; with Smooth set, a shell's output glides too, slowly |
+| | 80 columns, 24 lines | `--columns 132`, `--lines 36\|48` switch for a session |
+| | 6 pages of 24 lines | One page as tall as the screen, which pi draws on; a 48-line screen needs 3 pages of 48 (36: 4 of 36), or its lower lines stay blank |
+| | Status line: any | pi makes it host-writable and puts it back on exit |
+| | Dark screen | pi turns reverse video off while the screen saver runs anyway |
+| General | VT400 mode, 7-bit controls | pi sets 7-bit controls itself |
+| | Terminal ID VT420 | How pi knows it; another one shows as "VT400-class terminal" |
+| | User Defined Keys Locked | pi and zellij-vt420 use the keys as the terminal sends them; locked, nothing printed to the screen can reprogram Shift+F6 to F20 |
+| | User-preferred supplemental: DEC or ISO Latin-1 | pi asks which |
+| Global | One session | The XOFF points above are a single session's |
+
 - A serial login: `agetty -L 38400,19200 ttyUSB0 vt420`; Break at the login prompt steps down to 19200. The line
   speed is read with `stty` on serial ports and over ssh from a client on one; elsewhere `--baud` sets it, for the
   animation and timeouts. Pacing does not need it.
 - Pacing keeps the terminal from overflowing on its own, and a serial port that honours XOFF itself keeps the screen
   saver's rain gliding: with `ixon`, an FTDI adapter stops in the chip, a character after the terminal asks. ssh
   clears `ixon` on the tty it runs on, so set it again once logged in through it (`stty -F /dev/ttyUSB0 ixon`). An
-  FTDI adapter's `latency_timer` of 1 ms instead of 16 gets answers and keys to the host sooner.
-- `--columns 132` and `--lines 36|48` switch the terminal (DECSCPP/DECSNLS) and switch back on exit.
+  FTDI adapter's `latency_timer` of 1 ms instead of 16 gets answers and keys to the host sooner; a udev rule keeps it:
+  `ACTION=="add", SUBSYSTEM=="usb-serial", DRIVER=="ftdi_sio", ATTR{latency_timer}="1"`.
+- `--columns 132` and `--lines 36|48` switch the terminal (DECSCPP/DECSNLS) and switch back on exit; the page size
+  stays as Set-Up has it.
 
 ## Not included
 
