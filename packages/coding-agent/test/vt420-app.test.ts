@@ -248,7 +248,7 @@ describe("vt420 app", () => {
 		}
 		await settle(300);
 		expect(app.line.mostAhead).toBeGreaterThan(1);
-		expect(app.line.mostBytes).toBeLessThanOrEqual(320);
+		expect(app.line.mostBytes).toBeLessThanOrEqual(200);
 		// fewer frames than keys, the last showing all of them
 		expect(app.line.requests).toBeLessThan(30);
 		expect(app.screen()).toContain("x".repeat(50));
@@ -259,37 +259,26 @@ describe("vt420 app", () => {
 		await app.done;
 	});
 
-	it("sends a whole page to a DEC terminal in answered pieces, a few hundred bytes at most out", async () => {
-		const harness = await createHarness();
-		harnesses.push(harness);
-		const app = await start(harness, { deviceStatus: true }, undefined, { answerDelayMs: 30 });
-		const before = app.output.length;
-		await app.key("help");
-		await settle(1500);
-		const sent = app.output.slice(before);
-		expect(sent.length).toBeGreaterThanOrEqual(4);
-		// pieces of about 160 bytes, each with its request, two pieces' worth at most on the line
-		expect(Math.max(...sent.map((piece) => piece.length))).toBeLessThanOrEqual(200);
-		expect(sent.every((piece) => piece.endsWith("\x1b[5n"))).toBe(true);
-		expect(app.line.mostBytes).toBeLessThanOrEqual(320);
-		expect(app.screen()).toContain("send, steer while working");
-		await app.key("f11");
-		await app.key("ctrl+d");
-		await app.done;
-	});
-
-	it("lets a 38400 baud line carry a sixth of a second at once", async () => {
-		const harness = await createHarness();
-		harnesses.push(harness);
-		const app = await start(harness, { deviceStatus: true, bytesPerSecond: 3840 }, undefined, { answerDelayMs: 30 });
-		await app.key("help");
-		await settle(1500);
-		expect(app.line.mostBytes).toBeGreaterThan(320);
-		expect(app.line.mostBytes).toBeLessThanOrEqual(640);
-		expect(app.screen()).toContain("send, steer while working");
-		await app.key("f11");
-		await app.key("ctrl+d");
-		await app.done;
+	it("sends a whole page to a DEC terminal in answered pieces, never more out than its input buffer holds", async () => {
+		for (const bytesPerSecond of [1920, 3840]) {
+			const harness = await createHarness();
+			harnesses.push(harness);
+			const app = await start(harness, { deviceStatus: true, bytesPerSecond }, undefined, { answerDelayMs: 30 });
+			const before = app.output.length;
+			await app.key("help");
+			await settle(1500);
+			const sent = app.output.slice(before);
+			expect(sent.length).toBeGreaterThanOrEqual(8);
+			// pieces of about 96 bytes, each with its request, two of them at most out: a VT420 buffers 254, so with
+			// no XOFF honoured on the way it still loses nothing, at 38400 baud as at 19200
+			expect(Math.max(...sent.map((piece) => piece.length))).toBeLessThanOrEqual(140);
+			expect(sent.every((piece) => piece.endsWith("\x1b[5n"))).toBe(true);
+			expect(app.line.mostBytes).toBeLessThanOrEqual(200);
+			expect(app.screen()).toContain("send, steer while working");
+			await app.key("f11");
+			await app.key("ctrl+d");
+			await app.done;
+		}
 	});
 
 	it("paces with DA1 when the terminal does not answer DSR, and gets past a lost answer", async () => {

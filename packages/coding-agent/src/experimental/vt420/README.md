@@ -64,11 +64,11 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
   on one line with how the thinking started. PF3 shows all of it.
 - **Bandwidth**: a diff renderer with relative cursor moves, IND/RI hardware scrolling inside DECSTBM margins, DCH to
   scroll the emulators' thinking ticker in place, ECH and DECFRA for long rules. A frame goes to a DEC terminal in
-  pieces of 160 bytes at most, each ending with a DSR request (DA1 where the terminal ignores DSR), and pieces go out
-  only while those unanswered come to 320 bytes at most (a sixth of a second of a faster line, 640 bytes at 38400
-  baud), so even a page never runs ahead of the terminal while small frames still follow each other without a pause,
-  whatever the line speed, the buffers on the way or flow control that comes back over ssh too late to stop it;
-  emulators get whole frames paced the same way. Limited transmit, which holds the terminal's answers to 150
+  pieces of 96 bytes at most, each ending with a DSR request (DA1 where the terminal ignores DSR), and pieces go out
+  only while those unanswered come to 200 bytes at most, which a VT420's input buffer of 254 holds even while it
+  glides, so even a page never runs ahead of the terminal while small frames still follow each other without a pause,
+  whatever the line speed, the buffers on the way, and whether flow control comes back over ssh too late or not at
+  all; emulators get whole frames paced the same way. Limited transmit, which holds the terminal's answers to 150
   characters a second, is lifted for the session (DECXRLM) and put back on exit. When answers stop coming, lost on
   the line or held up by Set-Up, Hold Screen or flow control, only a DA1 probe goes out, less often each time, until
   one is answered, so a held terminal never gets a backlog to wade through. XON/XOFF stays on, so Hold Screen works. On a terminal set to smooth scroll, scrolls of more than two lines jump: gliding through a page takes
@@ -169,10 +169,10 @@ reads keys or pasted codes from the keyboard.
 - A serial login: `agetty -L 38400,19200 ttyUSB0 vt420`; Break at the login prompt steps down to 19200. The line
   speed is read with `stty` on serial ports and over ssh from a client on one; elsewhere `--baud` sets it, for the
   animation and timeouts. Pacing does not need it.
-- The serial port should honour XOFF itself: with `ixon`, an FTDI adapter stops in the chip, a character after the
-  terminal asks. ssh clears `ixon` on the tty it runs on, so set it again once logged in through it
-  (`stty -F /dev/ttyUSB0 ixon`). An FTDI adapter's `latency_timer` of 1 ms instead of 16 gets answers and keys to
-  the host sooner.
+- Pacing keeps the terminal from overflowing on its own, and a serial port that honours XOFF itself keeps the screen
+  saver's rain gliding: with `ixon`, an FTDI adapter stops in the chip, a character after the terminal asks. ssh
+  clears `ixon` on the tty it runs on, so set it again once logged in through it (`stty -F /dev/ttyUSB0 ixon`). An
+  FTDI adapter's `latency_timer` of 1 ms instead of 16 gets answers and keys to the host sooner.
 - `--columns 132` and `--lines 36|48` switch the terminal (DECSCPP/DECSNLS) and switch back on exit.
 
 ## Not included

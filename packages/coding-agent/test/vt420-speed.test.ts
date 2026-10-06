@@ -1,7 +1,7 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import { SpeedMeter } from "../src/experimental/vt420/speed.ts";
-import { formatDuration } from "../src/experimental/vt420/text.ts";
+import { formatAge, formatDuration } from "../src/experimental/vt420/text.ts";
 
 function reply(text: string, output = 0, stopReason: AssistantMessage["stopReason"] = "stop"): AssistantMessage {
 	return {
@@ -68,5 +68,27 @@ describe("vt420 durations", () => {
 			"1h 40m",
 			"25h 01m",
 		]);
+	});
+});
+
+describe("vt420 ages", () => {
+	it("says how long ago in words, by the calendar from yesterday on", () => {
+		const now = new Date(2026, 9, 6, 10, 30);
+		const ago = (minutes: number): string => formatAge(new Date(now.getTime() - minutes * 60_000), now);
+		expect([0.5, 5, 59, 60, 150, 10 * 60].map(ago)).toEqual([
+			"just now",
+			"5 min ago",
+			"59 min ago",
+			"an hour ago",
+			"2 hours ago",
+			"10 hours ago",
+		]);
+		// under a day counts in hours, across midnight too; then days by the calendar
+		expect(formatAge(new Date(2026, 9, 5, 23, 50), new Date(2026, 9, 6, 23, 0))).toBe("23 hours ago");
+		expect(formatAge(new Date(2026, 9, 5, 9, 0), now)).toBe("yesterday");
+		expect(formatAge(new Date(2026, 9, 3, 9, 0), now)).toBe("3 days ago");
+		expect(formatAge(new Date(2026, 8, 28, 9, 0), now)).toBe("a week ago");
+		expect(formatAge(new Date(2026, 6, 1), now)).toBe("3 months ago");
+		expect(formatAge(new Date(2024, 9, 1), now)).toBe("2 years ago");
 	});
 });

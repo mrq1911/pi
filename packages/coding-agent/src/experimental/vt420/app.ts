@@ -69,7 +69,7 @@ import {
 } from "./saver.ts";
 import { SpeedMeter } from "./speed.ts";
 import type { TerminalCapabilities } from "./terminal.ts";
-import { formatDuration, padCells, spaces, truncateCells } from "./text.ts";
+import { formatAge, formatDuration, padCells, spaces, truncateCells } from "./text.ts";
 import {
 	type BashState,
 	type RenderContext,
@@ -144,9 +144,12 @@ const SYNC_BYTES_PER_SECOND = 960;
  * A DEC terminal gets a frame in pieces of at most this many bytes, each answered before the window lets more out,
  * so a whole page never runs ahead of it: flow control that comes back over ssh comes too late to stop one.
  */
-const SYNC_CHUNK = 160;
-/** Bytes a DEC terminal has not answered yet, at most: two pieces' worth, however the frames split into them. */
-const SYNC_BYTES_WINDOW = 2 * SYNC_CHUNK;
+const SYNC_CHUNK = 96;
+/**
+ * Bytes a DEC terminal has not answered yet, at most: two pieces and their requests, which a VT420's input buffer of
+ * 254 holds even while it glides, so nothing is lost whether or not anything on the way honours its XOFF.
+ */
+const SYNC_BYTES_WINDOW = 2 * (SYNC_CHUNK + 4);
 /**
  * Bytes a line of rain may take: a VT420 set to XOFF at 128 takes in that much while it glides a line, and the rest
  * would hold the next glide up.
@@ -154,8 +157,6 @@ const SYNC_BYTES_WINDOW = 2 * SYNC_CHUNK;
 const RAIN_LINE_BYTES = 128;
 /** Lines of rain out at once, at most: each costs a glide, which whatever comes next waits behind. */
 const RAIN_LINES_AHEAD = 2;
-/** On a faster line the window holds this much of the line's time instead, up to four pieces. */
-const SYNC_WINDOW_SECONDS = 1 / 6;
 /** How long answers may lag what the frames out take, and the first probe's wait; each next one waits twice as long. */
 const SYNC_TIMEOUT_MS = 1000;
 /** The longest wait for a probe, in first waits. */
@@ -1296,13 +1297,17 @@ export class Vt420App {
 			const sessions = await SessionManager.list(this.runtime.cwd, this.options.sessionDir);
 			const current = this.session.sessionFile;
 			sessions.sort((left, right) => right.modified.getTime() - left.modified.getTime());
-			const items = sessions
-				.filter((info) => info.path !== current)
-				.map((info) => ({
-					value: info.path,
-					label: info.name ?? (info.firstMessage.split("\n")[0]?.trim() || "(no messages)"),
-					detail: `${info.modified.toISOString().slice(0, 16).replace("T", " ")} · ${info.messageCount}`,
-				}));
+			const shown = sessions.filter((info) => info.path !== current);
+			const counts = shown.map((info) => `${info.messageCount} message${info.messageCount === 1 ? "" : "s"}`);
+			const ages = shown.map((info) => formatAge(info.modified));
+			// two columns, so every row's count and age line up whatever their length
+			const countWidth = Math.max(0, ...counts.map((count) => count.length));
+			const ageWidth = Math.max(0, ...ages.map((age) => age.length));
+			const items = shown.map((info, index) => ({
+				value: info.path,
+				label: info.name ?? (info.firstMessage.split("\n")[0]?.trim() || "(no messages)"),
+				detail: `${counts[index]!.padStart(countWidth)}  ${ages[index]!.padEnd(ageWidth)}`,
+			}));
 			if (items.length === 0) {
 				this.notice("info", "No earlier sessions in this directory");
 				return;
@@ -2501,13 +2506,7 @@ export class Vt420App {
 	private roomOnLine(): boolean {
 		if (this.held) return false;
 		if (this.io.caps.unicode) return this.unanswered.length < SYNC_WINDOW;
-		return this.unanswered.reduce((sum, length) => sum + length, 0) < this.bytesWindow();
-	}
-
-	/** In-flight bytes a DEC terminal may have: two pieces, or a sixth of a second of a fast line, four at most. */
-	private bytesWindow(): number {
-		const line = Math.round((this.io.caps.bytesPerSecond ?? 0) * SYNC_WINDOW_SECONDS);
-		return Math.min(2 * SYNC_BYTES_WINDOW, Math.max(SYNC_BYTES_WINDOW, line));
+		return this.unanswered.reduce((sum, length) => sum + length, 0) < SYNC_BYTES_WINDOW;
 	}
 
 	/** Send waiting pieces while they fit in the window, or the line is empty. */
@@ -2518,7 +2517,7 @@ export class Vt420App {
 			if (this.held) return false;
 			if (this.unanswered.length === 0) return true;
 			if (this.io.caps.unicode) return this.unanswered.length < SYNC_WINDOW;
-			return this.unanswered.reduce((sum, length) => sum + length, 0) + next <= this.bytesWindow();
+			return this.unanswered.reduce((sum, length) => sum + length, 0) + next <= SYNC_BYTES_WINDOW;
 		};
 		while (this.outbox.length > 0 && fits(this.outbox[0]!.length + sync.bytes.length)) {
 			const bytes = this.outbox.shift()! + sync.bytes;
