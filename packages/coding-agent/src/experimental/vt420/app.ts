@@ -536,6 +536,10 @@ export class Vt420App {
 		this.unsubscribe = session.subscribe((event) => this.onSessionEvent(event));
 		this.working = session.isStreaming;
 		this.rebuildTranscript();
+		// Up brings back what was sent in this session, as pi does
+		this.editor.resetHistory(
+			session.messages.flatMap((message) => (message.role === "user" ? [messageText(message.content)] : [])),
+		);
 		this.refreshFooter();
 		this.requestRender();
 	}

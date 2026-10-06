@@ -186,6 +186,14 @@ export class LineEditor {
 		if (this.history.length > 200) this.history.shift();
 	}
 
+	/** Start the history over with these, oldest first, as a session's prompts. */
+	resetHistory(texts: readonly string[]): void {
+		this.history = [];
+		this.historyIndex = -1;
+		this.draft = undefined;
+		for (const text of texts) this.addToHistory(text);
+	}
+
 	historyPrevious(): void {
 		if (this.history.length === 0) return;
 		if (this.historyIndex === -1) {

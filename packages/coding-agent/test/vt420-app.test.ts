@@ -252,6 +252,26 @@ describe("vt420 app", () => {
 		}
 	});
 
+	it("brings back the session's prompts with Up when it resumes one", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage("one"), fauxAssistantMessage("two")]);
+		await harness.session.prompt("first question");
+		await harness.session.prompt("second question");
+		const app = await start(harness);
+		const editor = (): string | undefined => app.emulator.screen().find((row) => row.startsWith("π"));
+		await app.key("up");
+		expect(editor()).toBe("π second question");
+		await app.key("up");
+		expect(editor()).toBe("π first question");
+		// back down to the empty line, which Ctrl+D quits from
+		await app.key("down");
+		await app.key("down");
+		expect(editor()).toBe("π");
+		await app.key("ctrl+d");
+		await app.done;
+	});
+
 	it("quits on /q as on /quit", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
