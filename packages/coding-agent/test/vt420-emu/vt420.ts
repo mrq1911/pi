@@ -125,6 +125,8 @@ export interface Vt420Options {
 	onBell?: () => void;
 	/** The screen changed size: columns, and lines shown. */
 	onResize?: (columns: number, lines: number) => void;
+	/** An APC string, which the VT420 ignores and a display around it may act on. */
+	onApplicationString?: (data: string) => void;
 	/** Decode bytes from 0x80 as UTF-8, as a modern emulator does, rather than as C1 and GR. */
 	utf8?: boolean;
 	/** False ignores DECDWL and DECDHL, as most modern emulators do. */
@@ -615,6 +617,10 @@ export class Vt420 implements ParserHandler {
 				break;
 		}
 		this.couple();
+	}
+
+	apc(data: string): void {
+		this.options.onApplicationString?.(data);
 	}
 
 	substitute(): void {

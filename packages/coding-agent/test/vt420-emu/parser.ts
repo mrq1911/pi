@@ -21,6 +21,8 @@ export interface ParserHandler {
 	dcs(prefix: string, params: number[], intermediates: string, final: number, data: string): void;
 	/** SUB: whatever was in progress cancelled, and the error character shown. */
 	substitute(): void;
+	/** An application program command (APC) ended by ST, which the VT420 ignores; its printable text. */
+	apc?(data: string): void;
 }
 
 const GROUND = 0;
@@ -57,6 +59,8 @@ export class Parser {
 	private overflow = false;
 	/** Whether the string an ESC interrupted was a DCS, which is passed on when it ends. */
 	private escapedDcs = false;
+	/** The text of an APC string being read, which is passed on if ST ends it. */
+	private apc: string | undefined;
 	private utf8Need = 0;
 	private utf8Code = 0;
 
@@ -107,6 +111,7 @@ export class Parser {
 		if (code === 0x18 || code === 0x1a) {
 			this.state = GROUND;
 			this.escapedDcs = false;
+			this.apc = undefined;
 			if (code === 0x1a) this.handler.substitute();
 			return;
 		}
@@ -151,17 +156,24 @@ export class Parser {
 				if (code !== 0x7f) this.put(code);
 				return;
 			case IGNORED_STRING:
+				if (this.apc !== undefined && code >= 0x20 && code < 0x7f && this.apc.length < 256) {
+					this.apc += String.fromCharCode(code);
+				}
 				return;
-			case STRING_ESCAPE:
+			case STRING_ESCAPE: {
+				const apc = this.apc;
+				this.apc = undefined;
 				this.endString();
 				if (code === 0x5c) {
 					this.state = GROUND;
+					if (apc !== undefined) this.handler.apc?.(apc);
 					return;
 				}
 				this.state = ESCAPE;
 				this.intermediates = "";
 				this.escapeByte(code);
 				return;
+			}
 		}
 	}
 
@@ -194,6 +206,7 @@ export class Parser {
 			case 0x5f: // _
 			case 0x58: // X
 				this.state = IGNORED_STRING;
+				this.apc = code === 0x5f ? "" : undefined;
 				return;
 			case 0x5c: // a lone ST
 				this.state = GROUND;
@@ -204,6 +217,8 @@ export class Parser {
 	}
 
 	private c1(code: number): void {
+		const apc = this.state === IGNORED_STRING && code === 0x9c ? this.apc : undefined;
+		this.apc = undefined;
 		if (this.state === DCS_DATA || this.state === STRING_ESCAPE) {
 			if (this.state === DCS_DATA) this.escapedDcs = true;
 			this.endString();
@@ -221,8 +236,10 @@ export class Parser {
 			case 0x9f:
 			case 0x98:
 				this.state = IGNORED_STRING;
+				if (code === 0x9f) this.apc = "";
 				return;
 			case 0x9c:
+				if (apc !== undefined) this.handler.apc?.(apc);
 				return;
 		}
 		this.handler.execute(code);
