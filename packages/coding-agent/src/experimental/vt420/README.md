@@ -59,7 +59,7 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
   thinking level appear in the banner and in `/session`.
 - **Rolling thinking**: collapsed thinking fills two rows as tokens arrive, and each time the lower one is full the
   terminal smooth-scrolls the pair up a line (DECSCLM for that one scroll, inside its own DECSTBM margins), so the
-  latest tokens are always in view and the text rolls on like paper, the holes in its margin feeding up with it.
+  latest tokens are always in view and the text rolls on like paper, the holes in both its margins feeding up with it.
   Emulators, which do not scroll smoothly, get one line that scrolls left instead. Once the model moves on, it settles
   on one line with how the thinking started. PF3 shows all of it.
 - **Bandwidth**: a diff renderer with relative cursor moves, IND/RI hardware scrolling inside DECSTBM margins, DCH to
