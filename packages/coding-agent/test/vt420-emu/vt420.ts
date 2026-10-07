@@ -120,6 +120,8 @@ export const RECOMMENDED_SETUP: Vt420Setup = {
 
 export interface Vt420Options {
 	setup?: Partial<Vt420Setup>;
+	/** The keyboard plugged in, as DSR reports it: an LK401 unless said. */
+	keyboard?: "LK201" | "LK401";
 	/** Answers to the host, as bytes in a latin1 string. */
 	onResponse?: (bytes: string) => void;
 	onBell?: () => void;
@@ -1857,7 +1859,7 @@ export class Vt420 implements ParserHandler {
 	// ---- rectangles
 
 	/** A rectangle's corners from parameters, origin mode and the page applied; undefined when empty. */
-	private rectangle(params: number[], at: number, stream = false): [number, number, number, number] | undefined {
+	private rectangle(params: number[], at: number): [number, number, number, number] | undefined {
 		const value = (index: number, fallback: number): number => {
 			const v = params[at + index];
 			return v === undefined || v === 0 ? fallback : v;
@@ -1868,8 +1870,8 @@ export class Vt420 implements ParserHandler {
 		const left = Math.min(this.columns, value(1, 1) + colOffset) - 1;
 		const bottom = Math.min(this.pageLines, value(2, this.pageLines - rowOffset) + rowOffset) - 1;
 		const right = Math.min(this.columns, value(3, this.columns - colOffset) + colOffset) - 1;
-		// a stream of positions may end left of where it starts, on a later line
-		if (top > bottom || (left > right && !(stream && top < bottom))) return undefined;
+		// a stream of positions too, as the firmware has it: one ending left of where it starts changes nothing
+		if (top > bottom || left > right) return undefined;
 		return [top, left, bottom, right];
 	}
 
@@ -1939,7 +1941,7 @@ export class Vt420 implements ParserHandler {
 	/** DECCARA, or DECRARA with `reverse`, on a rectangle or the stream of positions between its corners. */
 	private changeAttributes(params: number[], reverse: boolean): void {
 		if (this.level < 2) return;
-		const area = this.rectangle(params, 0, this.attributeExtent !== 2);
+		const area = this.rectangle(params, 0);
 		if (!area) return;
 		// bold, underline, blink and negative image only: invisible is not among them
 		const values = (params.length > 4 ? params.slice(4) : [0]).filter((value) => value !== 8 && value !== 28);
@@ -2062,7 +2064,7 @@ export class Vt420 implements ParserHandler {
 				if (this.level > 1) this.respond(`${this.CSI}?${this.udkLocked ? 21 : 20}n`);
 				return;
 			case 26:
-				this.respond(`${this.CSI}?27;1${this.level > 1 ? ";0;1" : ""}n`);
+				this.respond(`${this.CSI}?27;1${this.level > 1 ? `;0;${this.options.keyboard === "LK201" ? 0 : 1}` : ""}n`);
 				return;
 			case 62:
 				this.respond(`${this.CSI}${Math.floor((MACRO_SPACE - this.macroBytes()) / 16)}*{`);
