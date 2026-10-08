@@ -15,8 +15,8 @@ import {
 	LINE_DOUBLE_WIDTH,
 	LINE_SINGLE,
 	type Line,
-} from "./cells.ts";
-import type { Charset } from "./charset.ts";
+} from "@mrq/vt420/cells.js";
+import type { Charset } from "@mrq/vt420/charset.js";
 import {
 	decodeEntities,
 	expandTabs,
@@ -29,7 +29,7 @@ import {
 	stripAnsi,
 	toLines,
 	wrapCells,
-} from "./text.ts";
+} from "@mrq/vt420/text.js";
 
 export interface MarkdownOptions {
 	width: number;

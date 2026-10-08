@@ -1,5 +1,5 @@
 /**
- * /rename: Claude Code's name for pi's /name. Installed by pi-vt420's install.sh into ~/.pi/agent/extensions, so pi
+ * /rename: another name for pi's /name, for fingers trained on other agents. Installed by pi-vt420's install.sh into ~/.pi/agent/extensions, so pi
  * and pi-vt420 both load it.
  */
 

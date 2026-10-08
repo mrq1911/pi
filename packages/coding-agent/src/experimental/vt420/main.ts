@@ -3,6 +3,8 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { SupplementalSet } from "@mrq/vt420/charset.js";
+import { Vt420Terminal } from "@mrq/vt420/terminal.js";
 import { isValidThinkingLevel } from "../../cli/args.ts";
 import { setupCli } from "../../cli/setup.ts";
 import { ENV_SESSION_DIR, expandTildePath, getAgentDir, VERSION } from "../../config.ts";
@@ -23,10 +25,8 @@ import { refreshModelCatalogs } from "../../modes/interactive/model-catalog-refr
 import { initTheme } from "../../modes/interactive/theme/theme.ts";
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { Vt420App } from "./app.ts";
-import type { SupplementalSet } from "./charset.ts";
 import { startIntro } from "./intro.ts";
 import { Keymap, type Vt420KeyOverrides } from "./keys.ts";
-import { Vt420Terminal } from "./terminal.ts";
 
 interface Vt420Config {
 	keys?: Vt420KeyOverrides;

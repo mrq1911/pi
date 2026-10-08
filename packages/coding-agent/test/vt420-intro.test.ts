@@ -1,11 +1,11 @@
+import { ATTR_REVERSE, cellSet, lineWidth } from "@mrq/vt420/cells.js";
+import { Charset } from "@mrq/vt420/charset.js";
+import { type Frame, rendererFor } from "@mrq/vt420/renderer.js";
+import { charsetDesignations, SESSION_MODES, statusLineType } from "@mrq/vt420/sequences.js";
+import type { TerminalCapabilities } from "@mrq/vt420/terminal.js";
+import { cellsText, EMU_REVERSE, Vt420Emulator } from "@mrq/vt420-emu/emulator.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ATTR_REVERSE, cellSet, lineWidth } from "../src/experimental/vt420/cells.ts";
-import { Charset } from "../src/experimental/vt420/charset.ts";
 import { IntroPlayer, type IntroStep, introSteps } from "../src/experimental/vt420/intro.ts";
-import { type Frame, rendererFor } from "../src/experimental/vt420/renderer.ts";
-import { charsetDesignations, SESSION_MODES, statusLineType } from "../src/experimental/vt420/sequences.ts";
-import type { TerminalCapabilities } from "../src/experimental/vt420/terminal.ts";
-import { cellsText, EMU_REVERSE, Vt420Emulator } from "./vt420-emulator.ts";
 
 const VT420: TerminalCapabilities = {
 	rows: 24,

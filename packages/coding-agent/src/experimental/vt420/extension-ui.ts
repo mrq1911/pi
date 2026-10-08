@@ -4,9 +4,9 @@
  * the way pi's RPC mode answers it, so an extension that checks `ctx.mode` falls back to its dialogs.
  */
 
+import { stripAnsi } from "@mrq/vt420/text.js";
 import type { ExtensionUIContext, ExtensionUIDialogOptions } from "../../core/extensions/index.ts";
 import { theme } from "../../modes/interactive/theme/theme.ts";
-import { stripAnsi } from "./text.ts";
 
 export interface ExtensionUIHost {
 	/** The index of the option picked, undefined when cancelled or `signal` ends it. */

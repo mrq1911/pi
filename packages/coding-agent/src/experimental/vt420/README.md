@@ -72,8 +72,9 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
   characters a second, is lifted for the session (DECXRLM) and put back on exit. When answers stop coming, lost on
   the line or held up by Set-Up, Hold Screen or flow control, only a DA1 probe goes out, less often each time, until
   one is answered, so a held terminal never gets a backlog to wade through. XON/XOFF stays on, so Hold Screen works. On a terminal set to smooth scroll, scrolls of more than two lines jump: gliding through a page takes
-  seconds, and what arrives meanwhile would overflow it. The tests draw on vt420-term's VT420 (`test/vt420-emu`, a
-  copy of its `src/emu`), and put it behind a model of the serial line: at 38400 baud, with the 254-character input
+  seconds, and what arrives meanwhile would overflow it. The terminal layer, character sets and renderer are
+  `@mrq/vt420`, which zellij-vt420 shares, and the tests draw on its emulated VT420, `@mrq/vt420-emu`, both from
+  [mrq1911/vt420](https://github.com/mrq1911/vt420); the tests put it behind a model of the serial line: at 38400 baud, with the 254-character input
   buffer, glides that hold input up and a host that never heeds XOFF, the rain and a long answer on a terminal set up
   as the factory sets it lose nothing.
 - **Screen saver**: a model can work for hours, and a CRT keeps a picture it shows that long, so after ten minutes
@@ -156,12 +157,12 @@ completion, the command menu and help, with skills as `/skill:name`. What needs 
 components) does nothing, as in RPC mode. `/llama` manages a llama.cpp router the same way, as a series of lists and
 prompts with its progress on the separator row.
 
-`/loop` runs a prompt again and again, as Claude Code's does: `/loop 5m check the build` every five minutes (a run that
+`/loop` runs a prompt again and again: `/loop 5m check the build` every five minutes (a run that
 comes due while another turn runs waits for it), `/loop keep the tests green` again as each run ends, the model
 choosing the wait before the next or ending the loop with a `loop_next` tool that is only active meanwhile. `/loop`
 shows what loops, `/loop stop` ends it, and so does interrupting a run. It is an extension
 (`extensions/loop.ts`) that `install.sh` links into `~/.pi/agent/extensions`, so the npm pi loads it too, as it
-does `/rename`, Claude Code's name for `/name`.
+does `/rename`, another name for `/name`, for fingers trained on other agents.
 Prompt templates and `/skill:name` work as in pi. `!cmd` runs a shell command; `!!cmd` keeps its output out of the context.
 
 `/login` prints the sign-in address or device code (the code in double-height letters) for another device and

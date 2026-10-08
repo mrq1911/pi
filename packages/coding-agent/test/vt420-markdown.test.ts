@@ -1,4 +1,3 @@
-import { describe, expect, it } from "vitest";
 import {
 	ATTR_BOLD,
 	ATTR_UNDERLINE,
@@ -7,11 +6,12 @@ import {
 	LINE_DOUBLE_TOP,
 	LINE_DOUBLE_WIDTH,
 	LINE_SINGLE,
-} from "../src/experimental/vt420/cells.ts";
-import { Charset } from "../src/experimental/vt420/charset.ts";
+} from "@mrq/vt420/cells.js";
+import { Charset } from "@mrq/vt420/charset.js";
+import { cellsText, linesText } from "@mrq/vt420-emu/emulator.js";
+import { describe, expect, it } from "vitest";
 import { LineEditor } from "../src/experimental/vt420/editor.ts";
 import { renderMarkdown } from "../src/experimental/vt420/markdown.ts";
-import { cellsText, linesText } from "./vt420-emulator.ts";
 
 const charset = new Charset({ technical: true, supplemental: "dec", eightBit: false });
 

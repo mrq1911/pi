@@ -1,5 +1,5 @@
+import { type InputEvent, InputParser } from "@mrq/vt420/input.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { type InputEvent, InputParser } from "../src/experimental/vt420/input.ts";
 import { Keymap, keyLabel, normalizeKey } from "../src/experimental/vt420/keys.ts";
 
 function parse(...chunks: Array<string | Uint8Array>): InputEvent[] {

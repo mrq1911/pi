@@ -10,11 +10,12 @@
  */
 
 import type { AssistantMessage } from "@earendil-works/pi-ai";
+import { ATTR_BOLD, BLANK, LINE_SINGLE, type Line } from "@mrq/vt420/cells.js";
+import type { Charset } from "@mrq/vt420/charset.js";
+import { expandTabs, hardWrap, padCells, spaces, stripAnsi, truncateCells, wrapCells } from "@mrq/vt420/text.js";
 import { parseSkillBlock } from "../../core/agent-session.ts";
-import { ATTR_BOLD, BLANK, LINE_SINGLE, type Line } from "./cells.ts";
-import type { Charset } from "./charset.ts";
+import { formatDuration } from "./format.ts";
 import { renderMarkdown } from "./markdown.ts";
-import { expandTabs, formatDuration, hardWrap, padCells, spaces, stripAnsi, truncateCells, wrapCells } from "./text.ts";
 
 export const SPINNER = ["⎺", "⎻", "─", "⎼", "⎽", "⎼", "─", "⎻"];
 

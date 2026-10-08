@@ -1,11 +1,11 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
+import { LINE_SINGLE } from "@mrq/vt420/cells.js";
+import { Charset } from "@mrq/vt420/charset.js";
+import { type Frame, Renderer } from "@mrq/vt420/renderer.js";
+import { charsetDesignations, SESSION_MODES } from "@mrq/vt420/sequences.js";
+import { linesText, Vt420Emulator } from "@mrq/vt420-emu/emulator.js";
 import { describe, expect, it } from "vitest";
-import { LINE_SINGLE } from "../src/experimental/vt420/cells.ts";
-import { Charset } from "../src/experimental/vt420/charset.ts";
-import { type Frame, Renderer } from "../src/experimental/vt420/renderer.ts";
-import { charsetDesignations, SESSION_MODES } from "../src/experimental/vt420/sequences.ts";
 import { type RenderContext, TranscriptBlock } from "../src/experimental/vt420/transcript.ts";
-import { linesText, Vt420Emulator } from "./vt420-emulator.ts";
 
 const WIDTH = 40;
 const THINKING =

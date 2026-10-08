@@ -20,11 +20,11 @@ import {
 	LINE_DOUBLE_WIDTH,
 	LINE_SINGLE,
 	type Line,
-} from "./cells.ts";
-import { Charset } from "./charset.ts";
-import { type Frame, type Renderer, rendererFor } from "./renderer.ts";
-import type { TerminalCapabilities, Vt420Terminal } from "./terminal.ts";
-import { spaces } from "./text.ts";
+} from "@mrq/vt420/cells.js";
+import { Charset } from "@mrq/vt420/charset.js";
+import { type Frame, type Renderer, rendererFor } from "@mrq/vt420/renderer.js";
+import type { TerminalCapabilities, Vt420Terminal } from "@mrq/vt420/terminal.js";
+import { spaces } from "@mrq/vt420/text.js";
 
 /** One character per cell; the shadow goes below and to the right. */
 const LOGO = [

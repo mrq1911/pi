@@ -16,10 +16,17 @@ import {
 	SET_GRAPHICS,
 	SET_SUPPLEMENTAL,
 	SET_TECHNICAL,
-} from "./cells.ts";
-import { type Charset, DEC_SUPPLEMENTAL, LATIN1_SUPPLEMENTAL, SPECIAL_GRAPHICS, TECH, TECHNICAL } from "./charset.ts";
+} from "@mrq/vt420/cells.js";
+import {
+	type Charset,
+	DEC_SUPPLEMENTAL,
+	LATIN1_SUPPLEMENTAL,
+	SPECIAL_GRAPHICS,
+	TECH,
+	TECHNICAL,
+} from "@mrq/vt420/charset.js";
+import { padCells, spaces, truncateCells, wrapCells } from "@mrq/vt420/text.js";
 import { type Keymap, keyLabel, type Vt420Action } from "./keys.ts";
-import { padCells, spaces, truncateCells, wrapCells } from "./text.ts";
 
 const tech = (code: number): number => glyph(SET_TECHNICAL, code);
 const BLANK_CELL = 0x20;

@@ -1,7 +1,7 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
+import { formatAge, formatDuration } from "../src/experimental/vt420/format.ts";
 import { SpeedMeter } from "../src/experimental/vt420/speed.ts";
-import { formatAge, formatDuration } from "../src/experimental/vt420/text.ts";
 
 function reply(text: string, output = 0, stopReason: AssistantMessage["stopReason"] = "stop"): AssistantMessage {
 	return {

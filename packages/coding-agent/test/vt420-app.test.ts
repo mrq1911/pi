@@ -1,16 +1,8 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { fauxAssistantMessage, fauxText, fauxThinking, fauxToolCall } from "@earendil-works/pi-ai";
-import { Type } from "typebox";
-import { afterEach, describe, expect, it } from "vitest";
-import { Vt420App, type Vt420AppOptions, type Vt420Io, type Vt420Runtime } from "../src/experimental/vt420/app.ts";
-import { type InputEvent, InputParser, type TerminalResponse } from "../src/experimental/vt420/input.ts";
-import { Keymap } from "../src/experimental/vt420/keys.ts";
-import { charsetDesignations, SESSION_MODES, statusLineType } from "../src/experimental/vt420/sequences.ts";
-import type { TerminalCapabilities } from "../src/experimental/vt420/terminal.ts";
-import { formatTokens } from "../src/experimental/vt420/widgets.ts";
-import { createHarness, type Harness } from "./suite/harness.ts";
-import { type LineOptions, SerialLine } from "./vt420-emu/line.ts";
-import type { Vt420Setup } from "./vt420-emu/vt420.ts";
+import { type InputEvent, InputParser, type TerminalResponse } from "@mrq/vt420/input.js";
+import { charsetDesignations, SESSION_MODES, statusLineType } from "@mrq/vt420/sequences.js";
+import type { TerminalCapabilities } from "@mrq/vt420/terminal.js";
 import {
 	EMU_BOLD,
 	EMU_FLAGS,
@@ -18,7 +10,15 @@ import {
 	EMU_UNDERLINE,
 	type EmulatorOptions,
 	Vt420Emulator,
-} from "./vt420-emulator.ts";
+} from "@mrq/vt420-emu/emulator.js";
+import { type LineOptions, SerialLine } from "@mrq/vt420-emu/line.js";
+import type { Vt420Setup } from "@mrq/vt420-emu/vt420.js";
+import { Type } from "typebox";
+import { afterEach, describe, expect, it } from "vitest";
+import { Vt420App, type Vt420AppOptions, type Vt420Io, type Vt420Runtime } from "../src/experimental/vt420/app.ts";
+import { Keymap } from "../src/experimental/vt420/keys.ts";
+import { formatTokens } from "../src/experimental/vt420/widgets.ts";
+import { createHarness, type Harness } from "./suite/harness.ts";
 
 interface Line {
 	/** How long the terminal takes to answer; a line that loses answers never does. */

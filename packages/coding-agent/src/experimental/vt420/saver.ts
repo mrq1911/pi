@@ -7,8 +7,8 @@
  */
 
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { ATTR_BOLD, BLANK, isSpace, LINE_SINGLE, type Line } from "./cells.ts";
-import type { Frame } from "./renderer.ts";
+import { ATTR_BOLD, BLANK, isSpace, LINE_SINGLE, type Line } from "@mrq/vt420/cells.js";
+import type { Frame } from "@mrq/vt420/renderer.js";
 
 export type SaverMode = "off" | "blank" | "progress" | "matrix";
 

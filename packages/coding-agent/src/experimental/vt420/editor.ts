@@ -6,8 +6,8 @@
  * rows are indented.
  */
 
-import { ATTR_BOLD } from "./cells.ts";
-import type { Charset } from "./charset.ts";
+import { ATTR_BOLD } from "@mrq/vt420/cells.js";
+import type { Charset } from "@mrq/vt420/charset.js";
 
 export interface EditorLayout {
 	rows: number[][];

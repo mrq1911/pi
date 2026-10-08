@@ -19,6 +19,20 @@ import {
 } from "@earendil-works/pi-ai";
 import { DEFAULT_RADIUS_GATEWAY } from "@earendil-works/pi-ai/providers/radius-config";
 import { fuzzyFilter } from "@earendil-works/pi-tui";
+import {
+	ATTR_BOLD,
+	cellCode,
+	cellSet,
+	LINE_DOUBLE_BOTTOM,
+	LINE_DOUBLE_TOP,
+	LINE_SINGLE,
+	type Line,
+} from "@mrq/vt420/cells.js";
+import { Charset, cellToUnicode } from "@mrq/vt420/charset.js";
+import type { InputEvent, TerminalResponse } from "@mrq/vt420/input.js";
+import { type Frame, type Renderer, rendererFor } from "@mrq/vt420/renderer.js";
+import { behindVt420, type TerminalCapabilities } from "@mrq/vt420/terminal.js";
+import { padCells, spaces, truncateCells } from "@mrq/vt420/text.js";
 import { getAuthCredential } from "../../cli/auth-command.ts";
 import { getShareViewerUrl } from "../../config.ts";
 import type { AgentSession, AgentSessionEvent } from "../../core/agent-session.ts";
@@ -48,14 +62,11 @@ import {
 import { exportSessionForShare } from "../../modes/interactive/session-share.ts";
 import { getChangelogPath, normalizeChangelogLinks, parseChangelog } from "../../utils/changelog.ts";
 import { copyToClipboard } from "../../utils/clipboard.ts";
-import { ATTR_BOLD, cellCode, cellSet, LINE_DOUBLE_BOTTOM, LINE_DOUBLE_TOP, LINE_SINGLE, type Line } from "./cells.ts";
-import { Charset, cellToUnicode } from "./charset.ts";
 import { LineEditor } from "./editor.ts";
 import { createExtensionUI } from "./extension-ui.ts";
-import type { InputEvent, TerminalResponse } from "./input.ts";
+import { formatAge, formatDuration } from "./format.ts";
 import type { Keymap, Vt420Action } from "./keys.ts";
 import { renderMarkdown } from "./markdown.ts";
-import { type Frame, type Renderer, rendererFor } from "./renderer.ts";
 import {
 	generatedText,
 	isSaverMode,
@@ -68,8 +79,6 @@ import {
 	saverPlace,
 } from "./saver.ts";
 import { SpeedMeter } from "./speed.ts";
-import { behindVt420, type TerminalCapabilities } from "./terminal.ts";
-import { formatAge, formatDuration, padCells, spaces, truncateCells } from "./text.ts";
 import {
 	type BashState,
 	type RenderContext,

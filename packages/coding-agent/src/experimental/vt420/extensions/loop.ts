@@ -1,5 +1,5 @@
 /**
- * /loop: run a prompt again and again, like Claude Code's.
+ * /loop: run a prompt again and again.
  *
  *   /loop 5m check the build    every five minutes; a run that comes due while another turn runs waits for it
  *   /loop keep the tests green  again as each run ends; the model picks the wait before the next, or ends the loop,

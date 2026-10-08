@@ -1,6 +1,6 @@
+import { ATTR_BOLD, cellCode } from "@mrq/vt420/cells.js";
+import { Charset } from "@mrq/vt420/charset.js";
 import { describe, expect, it } from "vitest";
-import { ATTR_BOLD, cellCode } from "../src/experimental/vt420/cells.ts";
-import { Charset } from "../src/experimental/vt420/charset.ts";
 import { MatrixRain, saverFrame, saverPlace } from "../src/experimental/vt420/saver.ts";
 
 const charset = new Charset({ technical: true, supplemental: "dec", eightBit: false });
