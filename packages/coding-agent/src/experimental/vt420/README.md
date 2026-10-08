@@ -4,6 +4,11 @@ A simplified pi CLI built for a real DEC VT420 on a serial line, or anything tha
 (`xterm -ti vt420`). It runs the same `AgentSession` as `pi`: same tools, models, credentials, sessions,
 `AGENTS.md`, skills and prompt templates, so sessions move freely between the two. Only the frontend is new.
 
+![pi-vt420 finding and fixing a failing test, amber phosphor](media/pi-vt420.webp)
+
+The start-up animation, then a local model finds why a test fails and fixes it, in
+[vt420](https://github.com/mrq1911/vt420), the VT420 in a browser window.
+
 ```bash
 ./pi-vt420.sh                 # from the repository root
 ./pi-vt420.sh -c              # continue the latest session here
