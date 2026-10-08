@@ -152,3 +152,30 @@ describe("vt420 transcript thinking", () => {
 		expect(shifted * 1.5).toBeLessThan(send(false));
 	});
 });
+
+describe("vt420 transcript tools", () => {
+	const output = Array.from({ length: 12 }, (_, i) => `line ${i + 1}`).join("\n");
+	const bash = (running: boolean): TranscriptBlock =>
+		new TranscriptBlock(1, {
+			kind: "bash",
+			bash: { command: "make", output, running, cancelled: false, excluded: false, startedAt: 0 },
+		});
+	const grep = (running: boolean): TranscriptBlock =>
+		new TranscriptBlock(1, {
+			kind: "tool",
+			tool: { name: "grep", args: { pattern: "line" }, status: running ? "running" : "done", output, startedAt: 0 },
+		});
+
+	it("expands the output of a tool still running, as of one done", () => {
+		for (const block of [bash, grep]) {
+			for (const running of [true, false]) {
+				const collapsed = linesText(block(running).render(context()));
+				expect(collapsed).toContain("  ┌ 7 earlier lines · PF2");
+				const outputLine = (line: string): boolean => /line \d+$/.test(line);
+				expect(collapsed.filter(outputLine)).toHaveLength(5);
+				const expanded = linesText(block(running).render({ ...context(), expandTools: true }));
+				expect(expanded.filter(outputLine)).toHaveLength(12);
+			}
+		}
+	});
+});

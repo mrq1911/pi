@@ -313,10 +313,11 @@ function renderTool(tool: ToolState, context: RenderContext): Line[] {
 			: `${okMark(charset)} ${doneLabel(tool)}`.trimEnd();
 	const lines: Line[] = [header(`${marker}${toolSummary(tool, context)}`, status, context)];
 	const body = toolBody(tool, context);
+	// expanded or not alike while it runs; it keeps to its latest lines meanwhile
 	lines.push(
 		...gutter(
 			body,
-			running ? 5 : context.expandTools ? 400 : 5,
+			context.expandTools ? 400 : 5,
 			running ? "tail" : tool.name === "edit" ? "head" : "tail",
 			context,
 		),
@@ -334,7 +335,7 @@ function renderBash(bash: BashState, context: RenderContext): Line[] {
 				? `${failMark(charset)} exit ${bash.exitCode}`
 				: okMark(charset);
 	const lines: Line[] = [header(`${bash.excluded ? "!!" : "!"} ${firstLine(bash.command)}`, status, context)];
-	const limit = bash.running ? 5 : context.expandTools ? 400 : 5;
+	const limit = context.expandTools ? 400 : 5;
 	lines.push(...gutter(outputLines(bash.output, context.charset), limit, "tail", context));
 	return lines;
 }
