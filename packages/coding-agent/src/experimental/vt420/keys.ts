@@ -37,6 +37,7 @@ export const VT420_KEYBINDINGS = {
 	"app.help": { keys: ["help", "shift+help"], description: "Key help" },
 	"app.menu": { keys: ["f14"], description: "Command menu" },
 	"app.resume": { keys: ["f7"], description: "Resume session" },
+	"app.resume.empty": { keys: ["left"], description: "Resume session (empty input)" },
 	"app.mainScreen": { keys: ["f9"], description: "Back to live view" },
 	"app.redraw": { keys: ["ctrl+l"], description: "Redraw screen" },
 	"app.matrix": { keys: ["f20"], description: "Matrix rain now" },

@@ -142,6 +142,7 @@ const HELP_KEYS: HelpEntry[] = [
 	{ action: "app.scroll.top", label: "top of transcript" },
 	{ action: "app.scroll.bottom", label: "live view" },
 	{ action: "app.resume", label: "resume a session" },
+	{ action: "app.resume.empty", label: "resume a session when input is empty" },
 	{ action: "app.menu", label: "command menu" },
 	{ action: "app.model.cycle", label: "next model" },
 	{ action: "app.redraw", label: "redraw the screen" },

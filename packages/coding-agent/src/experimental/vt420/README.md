@@ -60,8 +60,8 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
   can emit a control sequence.
 - **Line attributes**: DECDHL for the banner and level-1 headings, DECDWL for level-2 headings.
 - **Host-writable status line** (DECSSDT/DECSASD) for the footer, right-aligned under the prompt: ↑↓ tokens,
-  generation speed in tok/s, ▒ context used/max and the working directory (its last component when long). Model and
-  thinking level appear in the banner and in `/session`.
+  generation speed in tok/s, ∴ thinking level, ▒ context used/max and the working directory (its last component when
+  long). The model appears in the banner and in `/session`.
 - **Rolling thinking**: collapsed thinking fills two rows as tokens arrive, and each time the lower one is full the
   terminal smooth-scrolls the pair up a line (DECSCLM for that one scroll, inside its own DECSTBM margins), so the
   latest tokens are always in view and the text rolls on like paper, the holes in both its margins feeding up with it.
@@ -125,7 +125,7 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
 | F6 Interrupt, F11 ESC | interrupt, close menus |
 | F8 Cancel, Ctrl+C | clear input; twice to exit |
 | F10 Exit, Ctrl+D | exit when the input is empty |
-| F7 Resume | pick a session |
+| F7 Resume, Left on an empty input | pick a session |
 | F9 Main Screen, Select | back to the live view |
 | F14 Additional Options | command menu |
 | Help | keys and commands |
@@ -152,7 +152,9 @@ the LK401's F14 to F20, Help and Do on, count as those keys. Every binding can b
 clipboard on a host that has one; a VT420 has neither. `/settings` has pi's settings that apply here (auto-compact,
 steering and follow-up modes, thinking per model, transport, HTTP idle timeout, cache warming, images, skill commands,
 project trust, telemetry) and the screen saver's; `/scoped-models` picks the models next-model goes through, at once
-for the session and, with Save, for the next start. `/share` and `/bug` work as in pi (Radius, or a secret gist
+for the session and, with Save, for the next start. `/model` asks your own OpenAI-compatible servers (models.json)
+which models they serve, for no tokens, and lists those first; the rest are marked not loaded, or offline when the
+server is not running. `/share` and `/bug` work as in pi (Radius, or a secret gist
 through `gh`; the bug report's consents, upload or a zip in the current directory), with their progress on the
 separator row, where interrupt cancels it.
 

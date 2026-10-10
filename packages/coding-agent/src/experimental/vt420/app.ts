@@ -11,10 +11,12 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import {
+	type Api,
 	type AssistantMessage,
 	type AuthEvent,
 	type AuthPrompt,
 	getSupportedThinkingLevels,
+	type Model,
 	type Transport,
 } from "@earendil-works/pi-ai";
 import { DEFAULT_RADIUS_GATEWAY } from "@earendil-works/pi-ai/providers/radius-config";
@@ -67,6 +69,7 @@ import { createExtensionUI } from "./extension-ui.ts";
 import { formatAge, formatDuration } from "./format.ts";
 import type { Keymap, Vt420Action } from "./keys.ts";
 import { renderMarkdown } from "./markdown.ts";
+import { type ModelState, modelStates } from "./running.ts";
 import {
 	generatedText,
 	isSaverMode,
@@ -144,6 +147,9 @@ export interface Vt420AppOptions {
 
 /** Longest working directory the footer shows; longer ones shrink to their last component. */
 const FOOTER_DIRECTORY_WIDTH = 24;
+
+const MODEL_STATE_ORDER: ReadonlyArray<ModelState | "unknown"> = ["running", "unknown", "idle", "offline"];
+const MODEL_STATE_LABELS: Record<ModelState, string> = { running: "running", idle: "not loaded", offline: "offline" };
 
 /** Frames sent but not yet answered, at most: the terminal is never more than a frame behind. */
 const SYNC_WINDOW = 2;
@@ -902,6 +908,10 @@ export class Vt420App {
 			this.exit();
 			return;
 		}
+		if (this.keymap.matches(key, "app.resume.empty") && this.editor.empty) {
+			void this.showSessions();
+			return;
+		}
 		const page = Math.max(1, this.regionHeight - 2);
 		const handlers: Array<[Vt420Action, () => void]> = [
 			["app.interrupt", () => this.interrupt()],
@@ -915,7 +925,7 @@ export class Vt420App {
 			["app.redraw", () => this.redraw()],
 			["app.matrix", () => (this.saverHere ? this.startSaver("matrix") : this.noSaverHere())],
 			["app.thinking.cycle", () => this.cycleThinking()],
-			["app.model.select", () => this.showModels()],
+			["app.model.select", () => void this.showModels()],
 			["app.model.cycle", () => void this.cycleModel()],
 			["app.thinking.toggle", () => this.toggleThinking()],
 			["app.tools.expand", () => this.toggleTools()],
@@ -1089,7 +1099,7 @@ export class Vt420App {
 				return true;
 			case "model":
 				if (args) this.setModelByName(args);
-				else this.showModels();
+				else void this.showModels();
 				return true;
 			case "thinking":
 				if (args) this.setThinking(args);
@@ -1266,19 +1276,28 @@ export class Vt420App {
 		}
 	}
 
-	private availableModels(): SelectorItem[] {
+	private availableModels(states: ReadonlyMap<string, ModelState> = new Map()): SelectorItem[] {
 		const current = this.model;
+		const isCurrent = (model: Model<Api>): boolean =>
+			model.provider === current?.provider && model.id === current?.id;
+		const state = (model: Model<Api>): ModelState | undefined => states.get(`${model.provider}/${model.id}`);
+		const rank = (model: Model<Api>): number =>
+			MODEL_STATE_ORDER.indexOf(state(model) ?? "unknown") * 2 + (isCurrent(model) ? 0 : 1);
 		const models = [...this.session.modelRuntime.getAvailableSnapshot()];
-		models.sort((left, right) => {
-			const leftCurrent = left.provider === current?.provider && left.id === current?.id;
-			const rightCurrent = right.provider === current?.provider && right.id === current?.id;
-			return leftCurrent === rightCurrent ? 0 : leftCurrent ? -1 : 1;
+		models.sort((left, right) => rank(left) - rank(right));
+		return models.map((model) => {
+			const known = state(model);
+			const detail = [
+				isCurrent(model) ? "current" : undefined,
+				known && MODEL_STATE_LABELS[known],
+				`${formatTokens(model.contextWindow)} context`,
+			];
+			return {
+				value: `${model.provider}/${model.id}`,
+				label: `${model.provider}/${model.id}`,
+				detail: detail.filter(Boolean).join(" · "),
+			};
 		});
-		return models.map((model) => ({
-			value: `${model.provider}/${model.id}`,
-			label: `${model.provider}/${model.id}`,
-			detail: `${model.provider === current?.provider && model.id === current?.id ? "current · " : ""}${formatTokens(model.contextWindow)} context`,
-		}));
 	}
 
 	private selectModel(value: string): void {
@@ -1297,8 +1316,9 @@ export class Vt420App {
 			.catch((error: unknown) => this.notice("error", errorMessage(error)));
 	}
 
-	private showModels(): void {
-		const items = this.availableModels();
+	private async showModels(): Promise<void> {
+		const runtime = this.session.modelRuntime;
+		const items = this.availableModels(await modelStates(runtime, runtime.getAvailableSnapshot()));
 		if (items.length === 0) {
 			this.notice("warning", "No models are available. Use /login or set a provider API key.");
 			return;
@@ -2970,7 +2990,11 @@ export class Vt420App {
 		const speed = this.speed.display;
 		if (speed) {
 			const approximate = speed.approximate ? charset.pick("≃", "~") : "";
-			segments.push({ cells: charset.cells(`${approximate}${formatRate(speed.rate)} tok/s`), priority: 1 });
+			segments.push({ cells: charset.cells(`${approximate}${formatRate(speed.rate)} tok/s`), priority: 2 });
+		}
+		if (this.model?.reasoning) {
+			const level = this.session.thinkingLevel;
+			segments.push({ cells: charset.cells(charset.has("∴") ? `∴ ${level}` : `thinking ${level}`), priority: 1 });
 		}
 		if (stats.contextWindow > 0) {
 			const used = stats.contextTokens;
@@ -2979,14 +3003,14 @@ export class Vt420App {
 					...gauge(used === null ? 0 : used / stats.contextWindow, 6, charset),
 					...charset.cells(` ${used === null ? "?" : formatTokens(used)}/${formatTokens(stats.contextWindow)}`),
 				],
-				priority: 2,
+				priority: 3,
 			});
 		}
 		const path = tildePath(this.runtime.cwd, homedir());
 		const directory = path.length <= FOOTER_DIRECTORY_WIDTH ? path : basename(this.runtime.cwd);
 		segments.push({
 			cells: truncateCells(charset.cells(directory), FOOTER_DIRECTORY_WIDTH, charset.cells("…")),
-			priority: 3,
+			priority: 4,
 		});
 		const separator = charset.cells(" · ");
 		const length = (list: typeof segments): number =>

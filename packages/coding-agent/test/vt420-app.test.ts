@@ -1,3 +1,5 @@
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { fauxAssistantMessage, fauxText, fauxThinking, fauxToolCall } from "@earendil-works/pi-ai";
 import { type InputEvent, InputParser, type TerminalResponse } from "@mrq/vt420/input.js";
@@ -892,6 +894,86 @@ describe("vt420 app", () => {
 		expect(app.emulator.text(0)).toBe(" π");
 		await app.key("ctrl+c");
 		await app.key("ctrl+c");
+		await app.done;
+	});
+
+	it("lists the models their servers run first, asking the servers and not the models", async () => {
+		const requests: string[] = [];
+		const server = createServer((request, response) => {
+			requests.push(`${request.method} ${request.url} ${request.headers.authorization}`);
+			response.setHeader("content-type", "application/json");
+			response.end(JSON.stringify({ object: "list", data: [{ id: "served", object: "model" }] }));
+		});
+		const listen = async (target: ReturnType<typeof createServer>): Promise<number> => {
+			await new Promise<void>((resolve) => target.listen(0, "127.0.0.1", resolve));
+			return (target.address() as AddressInfo).port;
+		};
+		const port = await listen(server);
+		const gone = createServer();
+		const gonePort = await listen(gone);
+		await new Promise<void>((resolve) => gone.close(() => resolve()));
+		try {
+			const provider = (name: string, at: number, ids: string[]) => ({
+				[name]: {
+					baseUrl: `http://127.0.0.1:${at}/v1`,
+					api: "openai-completions",
+					apiKey: "local-key",
+					models: ids.map((id) => ({ id })),
+				},
+			});
+			const harness = await createHarness({
+				modelsJson: {
+					providers: { ...provider("up", port, ["waiting", "served"]), ...provider("down", gonePort, ["gone"]) },
+				},
+			});
+			harnesses.push(harness);
+			const app = await start(harness);
+			await app.key("pf2");
+			for (let attempt = 0; attempt < 50 && !app.screen().includes("Select model"); attempt++) await settle(20);
+			const rows = app.emulator.screen();
+			const row = (label: string): number => rows.findIndex((line) => line.includes(label));
+			const current = `${harness.getModel().provider}/${harness.getModel().id}`;
+			expect(row("up/served")).toBeGreaterThan(0);
+			expect([row("up/served"), row(current), row("up/waiting"), row("down/gone")]).toEqual(
+				[row("up/served"), row(current), row("up/waiting"), row("down/gone")].sort((a, b) => a - b),
+			);
+			expect(rows[row("up/served")]).toContain("running");
+			expect(rows[row(current)]).toContain("current");
+			expect(rows[row("up/waiting")]).toContain("not loaded");
+			expect(rows[row("down/gone")]).toContain("offline");
+			expect(requests).toEqual(["GET /v1/models Bearer local-key"]);
+			await app.key("f11");
+			await app.key("ctrl+d");
+			await app.done;
+		} finally {
+			server.close();
+		}
+	});
+
+	it("shows the thinking level on the status line", async () => {
+		const harness = await createHarness({ models: [{ id: "thinker", reasoning: true }] });
+		harnesses.push(harness);
+		const app = await start(harness);
+		const level = harness.session.thinkingLevel;
+		expect(app.emulator.statusText()).toContain(`↑0 ↓0 · ∴ ${level} · `);
+		await app.key("pf1");
+		expect(harness.session.thinkingLevel).not.toBe(level);
+		expect(app.emulator.statusText()).toContain(`∴ ${harness.session.thinkingLevel} · `);
+		await app.key("ctrl+d");
+		await app.done;
+	});
+
+	it("resumes a session on Left from an empty input", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		const app = await start(harness);
+		await app.type("x");
+		await app.key("left");
+		expect(app.screen()).not.toContain("No earlier sessions");
+		await app.key("ctrl+c");
+		await app.key("left");
+		expect(app.screen()).toContain("No earlier sessions in this directory");
+		await app.key("ctrl+d");
 		await app.done;
 	});
 
