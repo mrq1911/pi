@@ -1,5 +1,5 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { LINE_SINGLE } from "@mrq/vt420/cells.js";
+import { ATTR_BOLD, LINE_SINGLE, type Line } from "@mrq/vt420/cells.js";
 import { Charset } from "@mrq/vt420/charset.js";
 import { type Frame, Renderer } from "@mrq/vt420/renderer.js";
 import { charsetDesignations, SESSION_MODES } from "@mrq/vt420/sequences.js";
@@ -125,6 +125,20 @@ describe("vt420 transcript thinking", () => {
 		);
 	});
 
+	it("makes the last word of live thinking glow", () => {
+		const glowing = (lines: Line[]): string[] =>
+			linesText(lines.map((line) => ({ ...line, cells: line.cells.filter((cell) => cell & ATTR_BOLD) }))).filter(
+				(text) => text !== "",
+			);
+		const views = [context(), { ...context(), rollThinking: true }, context(true)];
+		for (const view of views) {
+			expect(glowing(thinkingBlock(THINKING, true).render(view))).toEqual(["tests"]);
+			expect(glowing(thinkingBlock(`${THINKING} pass`, true).render(view))).toEqual(["pass"]);
+			expect(glowing(thinkingBlock("", true).render(view))).toEqual([]);
+			expect(glowing(thinkingBlock(THINKING, false).render(view))).toEqual([]);
+		}
+	});
+
 	it("scrolls the ticker in the terminal with a few bytes per update", () => {
 		const words = THINKING.split(" ");
 		const send = (eraseCharacters: boolean): number => {
@@ -151,8 +165,8 @@ describe("vt420 transcript thinking", () => {
 			return sent;
 		};
 		const shifted = send(true);
-		expect(shifted).toBeLessThan(90);
-		expect(shifted * 1.5).toBeLessThan(send(false));
+		expect(shifted).toBeLessThan(140);
+		expect(shifted * 1.3).toBeLessThan(send(false));
 	});
 });
 

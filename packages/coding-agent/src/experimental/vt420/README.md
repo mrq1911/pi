@@ -65,8 +65,8 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
 - **Rolling thinking**: collapsed thinking fills two rows as tokens arrive, and each time the lower one is full the
   terminal smooth-scrolls the pair up a line (DECSCLM for that one scroll, inside its own DECSTBM margins), so the
   latest tokens are always in view and the text rolls on like paper, the holes in both its margins feeding up with it.
-  Emulators, which do not scroll smoothly, get one line that scrolls left instead. Once the model moves on, it settles
-  on one line with how the thinking started. PF3 shows all of it.
+  Emulators, which do not scroll smoothly, get one line that scrolls left instead. Either way the newest word glows in
+  bold. Once the model moves on, it settles on one line with how the thinking started. PF3 shows all of it.
 - **Bandwidth**: a diff renderer with relative cursor moves, IND/RI hardware scrolling inside DECSTBM margins, DCH to
   scroll the emulators' thinking ticker in place, ECH and DECFRA for long rules. A frame goes to a DEC terminal in
   pieces of 96 bytes at most, each ending with a DSR request (DA1 where the terminal ignores DSR), and pieces go out

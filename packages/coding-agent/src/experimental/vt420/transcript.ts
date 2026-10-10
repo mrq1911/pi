@@ -10,7 +10,7 @@
  */
 
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { ATTR_BOLD, BLANK, LINE_SINGLE, type Line } from "@mrq/vt420/cells.js";
+import { ATTR_BOLD, BLANK, isSpace, LINE_SINGLE, type Line } from "@mrq/vt420/cells.js";
 import type { Charset } from "@mrq/vt420/charset.js";
 import { expandTabs, hardWrap, padCells, spaces, stripAnsi, truncateCells, wrapCells } from "@mrq/vt420/text.js";
 import { parseSkillBlock } from "../../core/agent-session.ts";
@@ -199,16 +199,18 @@ function renderAssistant(message: AssistantMessage, streaming: boolean, context:
 	for (const [index, content] of message.content.entries()) {
 		if (content.type === "thinking") {
 			const thinking = content.thinking.trim();
+			const live = streaming && index === message.content.length - 1;
 			if (!context.showThinking) {
-				const live = streaming && index === message.content.length - 1;
 				if (live && context.rollThinking)
 					out.push(...thinkingWindow(thinking, `${message.timestamp}:${index}`, context));
 				else out.push(thinkingLine(thinking, live, context));
 				continue;
 			}
-			const rows = expandTabs(thinking || "thinking")
-				.split("\n")
-				.flatMap((line) => wrapCells(charset.cells(line), width - 2));
+			const lines = expandTabs(thinking || "thinking").split("\n");
+			const rows = lines.flatMap((line, at) => {
+				const cells = charset.cells(line);
+				return wrapCells(live && thinking && at === lines.length - 1 ? glowLastWord(cells) : cells, width - 2);
+			});
 			for (const [index, row] of rows.entries()) {
 				out.push({
 					cells: [...charset.cells(index === 0 ? `${charset.pick("∴", "»")} ` : "  "), ...row],
@@ -247,6 +249,7 @@ function thinkingLine(thinking: string, live: boolean, context: RenderContext): 
 		if (whole || cells.length > room) break;
 	}
 	if (cells.length === 0) return { cells: charset.cells(`${marker} thinking`), attr: LINE_SINGLE };
+	if (live) cells = glowLastWord(cells);
 	if (cells.length > room) {
 		const cut = room > ellipsis.length ? ellipsis : [];
 		cells = live ? [...cut, ...cells.slice(cells.length - room + cut.length)] : truncateCells(cells, room, ellipsis);
@@ -262,7 +265,7 @@ function thinkingLine(thinking: string, live: boolean, context: RenderContext): 
 function thinkingWindow(thinking: string, id: string, context: RenderContext): Line[] {
 	const { charset, width } = context;
 	const hole = charset.pick("°", "o");
-	const text = charset.cells(flattenThinking(thinking));
+	const text = glowLastWord(charset.cells(flattenThinking(thinking)));
 	const room = Math.max(1, width - 4);
 	const lines = text.length === 0 ? [charset.cells("thinking")] : wrapCells(text, room);
 	const first = Math.max(0, lines.length - 2);
@@ -271,6 +274,14 @@ function thinkingWindow(thinking: string, id: string, context: RenderContext): L
 		attr: LINE_SINGLE,
 		roll: { id, line },
 	}));
+}
+
+function glowLastWord(cells: number[]): number[] {
+	let end = cells.length;
+	while (end > 0 && isSpace(cells[end - 1]!)) end--;
+	let start = end;
+	while (start > 0 && !isSpace(cells[start - 1]!)) start--;
+	return cells.map((cell, at) => (at >= start && at < end ? cell | ATTR_BOLD : cell));
 }
 
 /** Thinking as one run of text: bold markers dropped, lines joined, paragraphs separated by a dot. */
