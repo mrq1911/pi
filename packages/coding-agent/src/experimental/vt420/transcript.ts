@@ -257,7 +257,7 @@ function thinkingLine(thinking: string, live: boolean, context: RenderContext): 
 /**
  * Live thinking on two rows, the lower one filling as tokens arrive; once it is full the pair moves on a line,
  * which the renderer turns into a smooth scroll of the two rows. Wrapped from the start, so lines keep their breaks,
- * and every other line has a hole in both margins, like continuous-form paper, which feeds up with it.
+ * and every line has a hole in both margins, like continuous-form paper, which feeds up with it.
  */
 function thinkingWindow(thinking: string, id: string, context: RenderContext): Line[] {
 	const { charset, width } = context;
@@ -266,18 +266,11 @@ function thinkingWindow(thinking: string, id: string, context: RenderContext): L
 	const room = Math.max(1, width - 4);
 	const lines = text.length === 0 ? [charset.cells("thinking")] : wrapCells(text, room);
 	const first = Math.max(0, lines.length - 2);
-	return [first, first + 1].map((line) => {
-		const holed = line % 2 === 0;
-		return {
-			cells: [
-				...charset.cells(holed ? `${hole} ` : "  "),
-				...padCells(lines[line] ?? [], room),
-				...charset.cells(holed ? ` ${hole}` : "  "),
-			],
-			attr: LINE_SINGLE,
-			roll: { id, line },
-		};
-	});
+	return [first, first + 1].map((line) => ({
+		cells: [...charset.cells(`${hole} `), ...padCells(lines[line] ?? [], room), ...charset.cells(` ${hole}`)],
+		attr: LINE_SINGLE,
+		roll: { id, line },
+	}));
 }
 
 /** Thinking as one run of text: bold markers dropped, lines joined, paragraphs separated by a dot. */

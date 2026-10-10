@@ -88,8 +88,11 @@ describe("vt420 transcript thinking", () => {
 
 	it("rolls live thinking up two rows on a DEC terminal, a smooth scroll for each line it fills", () => {
 		const rolling = { ...context(), rollThinking: true };
-		// a hole in each margin of every other line, like continuous-form paper
-		expect(linesText(thinkingBlock("", true).render(rolling))).toEqual([`° thinking${" ".repeat(WIDTH - 12)} °`, ""]);
+		// a hole in each margin of every line, like continuous-form paper
+		expect(linesText(thinkingBlock("", true).render(rolling))).toEqual([
+			`° thinking${" ".repeat(WIDTH - 12)} °`,
+			`°${" ".repeat(WIDTH - 2)}°`,
+		]);
 		const renderer = new Renderer({
 			rows: 4,
 			columns: WIDTH,
