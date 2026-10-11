@@ -1802,7 +1802,7 @@ export class Vt420App {
 	private showTree(selectedId?: string): void {
 		const manager = this.session.sessionManager;
 		const leaf = manager.getLeafId();
-		const rows = treeRows(manager.getTree(), leaf);
+		const rows = treeRows(manager.getTree(), leaf, { cwd: this.runtime.cwd, home: homedir() });
 		if (rows.length === 0) {
 			this.flash("No entries in session");
 			return;

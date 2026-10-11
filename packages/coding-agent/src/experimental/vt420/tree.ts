@@ -6,6 +6,7 @@
 
 import { contentText } from "@earendil-works/pi-ai";
 import type { SessionEntry, SessionTreeNode } from "../../core/session-manager.ts";
+import { type RenderContext, toolArguments } from "./transcript.ts";
 
 export interface TreeRow {
 	id: string;
@@ -43,7 +44,9 @@ function visible(entry: SessionEntry, leafId: string | null): boolean {
 	);
 }
 
-function rowText(entry: SessionEntry): string {
+type ToolCalls = Map<string, { name: string; args: Record<string, unknown> }>;
+
+function rowText(entry: SessionEntry, calls: ToolCalls, context: Pick<RenderContext, "cwd" | "home">): string {
 	switch (entry.type) {
 		case "message": {
 			const message = entry.message;
@@ -58,8 +61,11 @@ function rowText(entry: SessionEntry): string {
 						? `assistant: ${flat(message.errorMessage).slice(0, 80)}`
 						: "assistant: (no content)";
 				}
-				case "toolResult":
-					return `[${message.toolName}]`;
+				case "toolResult": {
+					const call = calls.get(message.toolCallId);
+					const args = call ? flat(toolArguments(call.name, call.args, context)) : "";
+					return args ? `[${message.toolName}]: ${args}` : `[${message.toolName}]`;
+				}
 				case "bashExecution":
 					return `[bash]: ${flat(message.command)}`;
 				default:
@@ -81,11 +87,22 @@ function rowText(entry: SessionEntry): string {
 	}
 }
 
-export function treeRows(roots: readonly SessionTreeNode[], leafId: string | null): TreeRow[] {
+export function treeRows(
+	roots: readonly SessionTreeNode[],
+	leafId: string | null,
+	context: Pick<RenderContext, "cwd" | "home">,
+): TreeRow[] {
 	const parents = new Map<string, string | null>();
+	const calls: ToolCalls = new Map();
 	const pending = [...roots];
 	for (let node = pending.pop(); node; node = pending.pop()) {
 		parents.set(node.entry.id, node.entry.parentId);
+		const entry = node.entry;
+		if (entry.type === "message" && entry.message.role === "assistant") {
+			for (const block of entry.message.content) {
+				if (block.type === "toolCall") calls.set(block.id, { name: block.name, args: block.arguments ?? {} });
+			}
+		}
 		pending.push(...node.children);
 	}
 	const path = new Set<string>();
@@ -117,7 +134,7 @@ export function treeRows(roots: readonly SessionTreeNode[], leafId: string | nul
 			rows.push({
 				id: node.entry.id,
 				prefix: prefix + connector,
-				text: rowText(node.entry),
+				text: rowText(node.entry, calls, context),
 				onPath: path.has(node.entry.id),
 				...(node.label ? { label: node.label } : {}),
 			});

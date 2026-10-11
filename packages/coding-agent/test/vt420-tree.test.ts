@@ -20,6 +20,17 @@ const assistant = (id: string, text: string, children: SessionTreeNode[] = []) =
 		children,
 	);
 
+const result = (id: string, call: string, tool: string, children: SessionTreeNode[] = []) =>
+	node(
+		{
+			id,
+			type: "message",
+			message: { role: "toolResult", toolCallId: call, toolName: tool, content: [], isError: false },
+		} as never,
+		children,
+	);
+const CONTEXT = { cwd: "/work", home: "/home/user" };
+
 describe("vt420 session tree", () => {
 	it("lists the branch it stands on first, with line drawing where it splits and a mark on its path", () => {
 		const tree = [
@@ -32,7 +43,7 @@ describe("vt420 session tree", () => {
 				]),
 			]),
 		];
-		const rows = treeRows(tree, "c2");
+		const rows = treeRows(tree, "c2", CONTEXT);
 		expect(rows.map((row) => `${row.prefix}${row.onPath ? "* " : ""}${row.text}`)).toEqual([
 			"* user: first",
 			"* assistant: one",
@@ -40,6 +51,51 @@ describe("vt420 session tree", () => {
 			"│  * assistant: three",
 			"└─ user: second",
 			"   assistant: two",
+		]);
+	});
+
+	it("shows what each tool worked on, from the call that asked for it", () => {
+		const calls = node(
+			{
+				id: "t",
+				type: "message",
+				message: {
+					role: "assistant",
+					content: [
+						{
+							type: "toolCall",
+							id: "c1",
+							name: "read",
+							arguments: { path: "/work/src/app.ts", offset: 10, limit: 5 },
+						},
+						{ type: "toolCall", id: "c2", name: "bash", arguments: { command: "npm test\nnpm run check" } },
+						{
+							type: "toolCall",
+							id: "c3",
+							name: "grep",
+							arguments: { pattern: "TODO", path: "/home/user/notes" },
+						},
+						{ type: "toolCall", id: "c4", name: "search", arguments: { query: "vt420" } },
+					],
+					stopReason: "toolUse",
+				},
+			} as never,
+			[
+				result("r1", "c1", "read", [
+					result("r2", "c2", "bash", [
+						result("r3", "c3", "grep", [result("r4", "c4", "search", [result("r5", "gone", "write")])]),
+					]),
+				]),
+			],
+		);
+		const rows = treeRows([user("u", "go", [calls])], "r5", CONTEXT);
+		expect(rows.map((row) => row.text)).toEqual([
+			"user: go",
+			"[read]: src/app.ts:10-14",
+			"[bash]: npm test …",
+			"[grep]: TODO in ~/notes",
+			'[search]: {"query":"vt420"}',
+			"[write]",
 		]);
 	});
 });

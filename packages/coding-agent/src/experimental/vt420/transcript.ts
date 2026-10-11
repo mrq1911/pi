@@ -463,9 +463,17 @@ function outputCells(line: string, charset: Charset, attrs = 0): number[] {
 }
 
 function toolSummary(tool: ToolState, context: RenderContext): string {
-	const args = tool.args;
+	const summary = toolArguments(tool.name, tool.args, context);
+	return tool.name in TOOL_GLYPHS ? summary : `${tool.name} ${summary}`.trim();
+}
+
+export function toolArguments(
+	name: string,
+	args: Record<string, unknown>,
+	context: Pick<RenderContext, "cwd" | "home">,
+): string {
 	const path = (): string => shortenPath(stringArg(args, "path") ?? stringArg(args, "file_path") ?? "", context);
-	switch (tool.name) {
+	switch (name) {
 		case "bash":
 			return firstLine(stringArg(args, "command") ?? "");
 		case "read": {
@@ -490,7 +498,7 @@ function toolSummary(tool: ToolState, context: RenderContext): string {
 			return shortenPath(stringArg(args, "path") ?? ".", context);
 		default: {
 			const json = JSON.stringify(args ?? {});
-			return `${tool.name} ${json === "{}" ? "" : json}`.trim();
+			return json === "{}" ? "" : json;
 		}
 	}
 }
