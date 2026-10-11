@@ -963,6 +963,27 @@ describe("vt420 app", () => {
 		await app.done;
 	});
 
+	it("picks the thinking level from a list with /effort, or sets it with /effort low", async () => {
+		const harness = await createHarness({ models: [{ id: "thinker", reasoning: true }] });
+		harnesses.push(harness);
+		const app = await start(harness);
+		const levels = harness.session.getAvailableThinkingLevels();
+		const current = harness.session.thinkingLevel;
+		await app.submit("/effort");
+		expect(app.screen()).toContain("Thinking level");
+		for (const level of levels) expect(app.screen()).toContain(level);
+		const chosen = app.emulator.screen().find((row) => row.includes("◆"));
+		expect(chosen).toContain(current);
+		expect(chosen).toContain("current");
+		await app.key("down");
+		await app.key("return");
+		expect(harness.session.thinkingLevel).toBe(levels[levels.indexOf(current) + 1]);
+		await app.submit("/effort low");
+		expect(harness.session.thinkingLevel).toBe("low");
+		await app.key("ctrl+d");
+		await app.done;
+	});
+
 	it("resumes a session on Left from an empty input", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);

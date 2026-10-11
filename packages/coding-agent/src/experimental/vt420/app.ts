@@ -198,7 +198,8 @@ export const COMMANDS: readonly CommandInfo[] = [
 	{ name: "help", description: "keys and commands" },
 	{ name: "hotkeys", description: "keys and commands, as /help" },
 	{ name: "model", args: "[name]", description: "select or switch the model" },
-	{ name: "thinking", args: "[level]", description: "set or cycle the thinking level" },
+	{ name: "effort", args: "[level]", description: "pick or set the thinking level" },
+	{ name: "thinking", args: "[level]", description: "as /effort" },
 	{ name: "new", description: "start a new session" },
 	{ name: "resume", description: "resume an earlier session" },
 	{ name: "compact", args: "[focus]", description: "summarize the context" },
@@ -1101,9 +1102,10 @@ export class Vt420App {
 				if (args) this.setModelByName(args);
 				else void this.showModels();
 				return true;
+			case "effort":
 			case "thinking":
 				if (args) this.setThinking(args);
-				else this.cycleThinking();
+				else this.showEffort();
 				return true;
 			case "new":
 				void this.runtime.newSession().catch((error: unknown) => this.notice("error", errorMessage(error)));
@@ -1253,6 +1255,27 @@ export class Vt420App {
 	private cycleThinking(): void {
 		const level = this.session.cycleThinkingLevel();
 		this.flash(level ? `Thinking ${level}` : "This model does not think");
+	}
+
+	private showEffort(): void {
+		if (!this.session.supportsThinking()) {
+			this.flash("This model does not think");
+			return;
+		}
+		const levels = this.session.getAvailableThinkingLevels();
+		const current = this.session.thinkingLevel;
+		const items = levels.map((level) => ({
+			value: level,
+			label: level,
+			detail: level === current ? "current" : undefined,
+		}));
+		this.openSelector(
+			"Thinking level",
+			items,
+			(item) => this.setThinking(item.value),
+			undefined,
+			levels.indexOf(current),
+		);
 	}
 
 	private setThinking(level: string): void {

@@ -143,7 +143,7 @@ the LK401's F14 to F20, Help and Do on, count as those keys. Every binding can b
 
 ## Commands
 
-`/help` (or `/hotkeys`), `/model [name]`, `/thinking [level]`, `/new`, `/resume`, `/tree`, `/fork`, `/clone`,
+`/help` (or `/hotkeys`), `/model [name]`, `/effort [level]` (or `/thinking`), `/new`, `/resume`, `/tree`, `/fork`, `/clone`,
 `/import <file.jsonl>`,
 `/compact [focus]`, `/session`, `/name [name]`, `/settings`, `/scoped-models`, `/login [provider]`,
 `/logout [provider]`, `/trust`, `/copy`, `/share`, `/bug [what went wrong]`,
@@ -154,7 +154,8 @@ steering and follow-up modes, thinking per model, transport, HTTP idle timeout, 
 project trust, telemetry) and the screen saver's; `/scoped-models` picks the models next-model goes through, at once
 for the session and, with Save, for the next start. `/model` asks your own OpenAI-compatible servers (models.json)
 which models they serve, for no tokens, and lists those first; the rest are marked not loaded, or offline when the
-server is not running. `/share` and `/bug` work as in pi (Radius, or a secret gist
+server is not running. `/effort` lists the model's thinking levels to pick from, `/effort high` sets one at once, and
+PF1 goes on to the next. `/share` and `/bug` work as in pi (Radius, or a secret gist
 through `gh`; the bug report's consents, upload or a zip in the current directory), with their progress on the
 separator row, where interrupt cancels it.
 
