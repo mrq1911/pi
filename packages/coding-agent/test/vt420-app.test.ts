@@ -984,6 +984,36 @@ describe("vt420 app", () => {
 		await app.done;
 	});
 
+	it("compacts with an animation of its own, the context squeezed between two arrows", async () => {
+		const harness = await createHarness({
+			tokensPerSecond: 20,
+			settings: { compaction: { enabled: true, keepRecentTokens: 1, reserveTokens: 0 } },
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage("one"),
+			fauxAssistantMessage("two"),
+			fauxAssistantMessage("so far ".repeat(200)),
+		]);
+		await harness.session.prompt("first question");
+		await harness.session.prompt("second question");
+		const app = await start(harness);
+		await app.submit("/compact");
+		const frames = new Set<string>();
+		for (let attempt = 0; attempt < 30; attempt++) {
+			const row = app.emulator.screen().find((line) => line.includes("Compacting"));
+			const frame = row ? /Compacting (.{8}) · /.exec(row)?.[1] : undefined;
+			if (frame) frames.add(frame);
+			await settle(40);
+		}
+		expect([...frames].length).toBeGreaterThan(1);
+		for (const frame of frames) expect(frame).toMatch(/^ *(→▒*←|▒▒) *$/);
+		await app.key("f6");
+		await waitForIdle(harness);
+		await app.key("ctrl+d");
+		await app.done;
+	});
+
 	it("resumes a session on Left from an empty input", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);

@@ -148,6 +148,9 @@ export interface Vt420AppOptions {
 /** Longest working directory the footer shows; longer ones shrink to their last component. */
 const FOOTER_DIRECTORY_WIDTH = 24;
 
+const COMPACTING = ["→▒▒▒▒▒▒←", " →▒▒▒▒← ", "  →▒▒←  ", "   →←   ", "   ▒▒   ", "   ▒▒   "];
+const COMPACTING_ASCII = [">######<", " >####< ", "  >##<  ", "   ><   ", "   ##   ", "   ##   "];
+
 const MODEL_STATE_ORDER: ReadonlyArray<ModelState | "unknown"> = ["running", "unknown", "idle", "offline"];
 const MODEL_STATE_LABELS: Record<ModelState, string> = { running: "running", idle: "not loaded", offline: "offline" };
 
@@ -2956,7 +2959,10 @@ export class Vt420App {
 			const seconds = Math.max(0, Math.ceil((this.retry.until - now) / 1000));
 			return `Retry ${this.retry.attempt}/${this.retry.max} in ${formatDuration(seconds)} · ${interrupt} stop`;
 		}
-		if (this.compacting) return `Compacting ${spinner} · ${interrupt} stop`;
+		if (this.compacting) {
+			const frame = this.tick % COMPACTING.length;
+			return `Compacting ${this.charset.pick(COMPACTING[frame]!, COMPACTING_ASCII[frame]!)} · ${interrupt} stop`;
+		}
 		if (this.summarizing) return `Summarizing branch ${spinner} · ${interrupt} stop`;
 		if (this.activity) return `${this.activity.text} ${spinner} · ${interrupt} stop`;
 		if (this.working) {
