@@ -69,6 +69,8 @@ const USAGE = `pi for the DEC VT420
 
 Usage: pi-vt420 [options] [prompt]
 
+Short options combine: -ca is -c -a.
+
 Session
   -c, --continue            continue the most recent session in this directory
   -r, --resume              choose a session to resume
@@ -130,10 +132,13 @@ function parseArgs(argv: readonly string[], config: Vt420Config): Args {
 		config: { ...config },
 		prompt: [],
 	};
-	for (let index = 0; index < argv.length; index++) {
-		const arg = argv[index]!;
+	const list = argv.flatMap((arg) =>
+		/^-[a-z]{2,}$/i.test(arg) ? [...arg.slice(1)].map((letter) => `-${letter}`) : [arg],
+	);
+	for (let index = 0; index < list.length; index++) {
+		const arg = list[index]!;
 		const value = (): string => {
-			const next = argv[++index];
+			const next = list[++index];
 			if (next === undefined) fail(`${arg} needs a value`);
 			return next;
 		};
