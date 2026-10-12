@@ -206,11 +206,15 @@ function renderAssistant(message: AssistantMessage, streaming: boolean, context:
 				else out.push(thinkingLine(thinking, live, context));
 				continue;
 			}
-			const lines = expandTabs(thinking || "thinking").split("\n");
-			const rows = lines.flatMap((line, at) => {
-				const cells = charset.cells(line);
-				return wrapCells(live && thinking && at === lines.length - 1 ? glowLastWord(cells) : cells, width - 2);
-			});
+			const lines = expandTabs(thinking || "thinking")
+				.split("\n")
+				.map((line) => charset.cells(line));
+			for (let at = lines.length - 1, left = live && thinking ? GLOW_WORDS : 0; at >= 0 && left > 0; at--) {
+				const glowing = glowLastWords(lines[at]!, left);
+				lines[at] = glowing.cells;
+				left -= glowing.words;
+			}
+			const rows = lines.flatMap((cells) => wrapCells(cells, width - 2));
 			for (const [index, row] of rows.entries()) {
 				out.push({
 					cells: [...charset.cells(index === 0 ? `${charset.pick("∴", "»")} ` : "  "), ...row],
@@ -249,7 +253,7 @@ function thinkingLine(thinking: string, live: boolean, context: RenderContext): 
 		if (whole || cells.length > room) break;
 	}
 	if (cells.length === 0) return { cells: charset.cells(`${marker} thinking`), attr: LINE_SINGLE };
-	if (live) cells = glowLastWord(cells);
+	if (live) cells = glowLastWords(cells, GLOW_WORDS).cells;
 	if (cells.length > room) {
 		const cut = room > ellipsis.length ? ellipsis : [];
 		cells = live ? [...cut, ...cells.slice(cells.length - room + cut.length)] : truncateCells(cells, room, ellipsis);
@@ -265,7 +269,7 @@ function thinkingLine(thinking: string, live: boolean, context: RenderContext): 
 function thinkingWindow(thinking: string, id: string, context: RenderContext): Line[] {
 	const { charset, width } = context;
 	const hole = charset.pick("°", "o");
-	const text = glowLastWord(charset.cells(flattenThinking(thinking)));
+	const text = glowLastWords(charset.cells(flattenThinking(thinking)), GLOW_WORDS).cells;
 	const room = Math.max(1, width - 4);
 	const lines = text.length === 0 ? [charset.cells("thinking")] : wrapCells(text, room);
 	const first = Math.max(0, lines.length - 2);
@@ -276,12 +280,22 @@ function thinkingWindow(thinking: string, id: string, context: RenderContext): L
 	}));
 }
 
-function glowLastWord(cells: number[]): number[] {
+const GLOW_WORDS = 3;
+
+function glowLastWords(cells: number[], count: number): { cells: number[]; words: number } {
 	let end = cells.length;
 	while (end > 0 && isSpace(cells[end - 1]!)) end--;
 	let start = end;
-	while (start > 0 && !isSpace(cells[start - 1]!)) start--;
-	return cells.map((cell, at) => (at >= start && at < end ? cell | ATTR_BOLD : cell));
+	let words = 0;
+	while (words < count && start > 0) {
+		while (start > 0 && !isSpace(cells[start - 1]!)) start--;
+		words++;
+		let gap = start;
+		while (gap > 0 && isSpace(cells[gap - 1]!)) gap--;
+		if (words === count || gap === 0) break;
+		start = gap;
+	}
+	return { cells: cells.map((cell, at) => (at >= start && at < end ? cell | ATTR_BOLD : cell)), words };
 }
 
 /** Thinking as one run of text: bold markers dropped, lines joined, paragraphs separated by a dot. */

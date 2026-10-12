@@ -125,15 +125,17 @@ describe("vt420 transcript thinking", () => {
 		);
 	});
 
-	it("makes the last word of live thinking glow", () => {
+	it("makes the last three words of live thinking glow", () => {
 		const glowing = (lines: Line[]): string[] =>
 			linesText(lines.map((line) => ({ ...line, cells: line.cells.filter((cell) => cell & ATTR_BOLD) }))).filter(
 				(text) => text !== "",
 			);
 		const views = [context(), { ...context(), rollThinking: true }, context(true)];
 		for (const view of views) {
-			expect(glowing(thinkingBlock(THINKING, true).render(view))).toEqual(["tests"]);
-			expect(glowing(thinkingBlock(`${THINKING} pass`, true).render(view))).toEqual(["pass"]);
+			expect(glowing(thinkingBlock(THINKING, true).render(view)).join(" ")).toBe("then the tests");
+			expect(glowing(thinkingBlock(`${THINKING} pass`, true).render(view)).join(" ")).toBe("the tests pass");
+			expect(glowing(thinkingBlock("one", true).render(view))).toEqual(["one"]);
+			if (view.showThinking) expect(glowing(thinkingBlock("a b c\nd e", true).render(view))).toEqual(["c", "d e"]);
 			expect(glowing(thinkingBlock("", true).render(view))).toEqual([]);
 			expect(glowing(thinkingBlock(THINKING, false).render(view))).toEqual([]);
 		}
@@ -165,8 +167,8 @@ describe("vt420 transcript thinking", () => {
 			return sent;
 		};
 		const shifted = send(true);
-		expect(shifted).toBeLessThan(140);
-		expect(shifted * 1.3).toBeLessThan(send(false));
+		expect(shifted).toBeLessThan(160);
+		expect(shifted * 1.15).toBeLessThan(send(false));
 	});
 });
 
