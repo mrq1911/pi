@@ -981,7 +981,7 @@ export class Vt420App {
 
 	private toggleTools(): void {
 		this.expandTools = !this.expandTools;
-		this.flash(this.expandTools ? "Expanded tool output" : "Collapsed tool output");
+		this.flash(this.expandTools ? "Expanded tool calls" : "Collapsed tool calls");
 	}
 
 	private scrollToEnd(): void {

@@ -136,7 +136,7 @@ const HELP_KEYS: HelpEntry[] = [
 	{ action: "app.thinking.cycle", label: "thinking level" },
 	{ action: "app.model.select", label: "select model" },
 	{ action: "app.thinking.toggle", label: "show thinking" },
-	{ action: "app.tools.expand", label: "expand tool output" },
+	{ action: "app.tools.expand", label: "expand tool calls" },
 	{ action: "app.scroll.pageUp", label: "page back" },
 	{ action: "app.scroll.pageDown", label: "page forward" },
 	{ action: "app.scroll.top", label: "top of transcript" },

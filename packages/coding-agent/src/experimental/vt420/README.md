@@ -69,7 +69,8 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
   in bold. Once the model moves on, it settles on one line with how long it took, `∴ Thought for 1 min 32 sec`.
   Sessions do not record that, so in a resumed one it says how many tokens instead: the provider's count where it
   reports one, `∴ Thought for 1.2k tokens`, or else four characters to a token, `∴ Thought for ≃1.2k tokens`. PF3 shows
-  all of it. Tool calls show their command on one line, line breaks and continuations joined, as much as fits.
+  all of it. Tool calls show their command on one line, line breaks and continuations joined, as much as fits; PF4
+  shows each call in full, the command with its line breaks and every argument, and up to 400 lines of its output.
 - **Bandwidth**: a diff renderer with relative cursor moves, IND/RI hardware scrolling inside DECSTBM margins, DCH to
   scroll the emulators' thinking ticker in place, ECH and DECFRA for long rules. A frame goes to a DEC terminal in
   pieces of 96 bytes at most, each ending with a DSR request (DA1 where the terminal ignores DSR), and pieces go out
@@ -133,7 +134,7 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
 | F14 Additional Options | command menu |
 | Help | keys and commands |
 | F20 | Matrix rain at once, whatever the screen saver is set to, on a VT400-class terminal; any key ends it |
-| PF1 / PF2 / PF3 / PF4 | thinking level / model / show thinking / expand tool output |
+| PF1 / PF2 / PF3 / PF4 | thinking level / model / show thinking / expand tool calls |
 | Prev Screen, Next Screen, Find | page the transcript, jump to the top |
 | F12 BS, F13 LF | start of line, delete word (as on VMS) |
 

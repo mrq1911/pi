@@ -45,7 +45,7 @@ export const VT420_KEYBINDINGS = {
 	"app.model.select": { keys: ["pf2", "f17"], description: "Select model" },
 	"app.model.cycle": { keys: ["ctrl+p", "f18"], description: "Next model" },
 	"app.thinking.toggle": { keys: ["pf3", "ctrl+t"], description: "Show thinking" },
-	"app.tools.expand": { keys: ["pf4", "ctrl+o"], description: "Expand tool output" },
+	"app.tools.expand": { keys: ["pf4", "ctrl+o"], description: "Expand tool calls" },
 	"app.scroll.pageUp": { keys: ["prev"], description: "Page up" },
 	"app.scroll.pageDown": { keys: ["next"], description: "Page down" },
 	"app.scroll.top": { keys: ["find"], description: "Top of transcript" },

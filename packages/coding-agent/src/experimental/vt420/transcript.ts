@@ -362,7 +362,12 @@ function renderTool(tool: ToolState, context: RenderContext): Line[] {
 		: tool.status === "error"
 			? `${failMark(charset)} ${errorLabel(tool)}`.trimEnd()
 			: `${okMark(charset)} ${doneLabel(tool)}`.trimEnd();
-	const lines: Line[] = [header(`${marker}${toolSummary(tool, context)}`, status, context)];
+	const lines: Line[] = context.expandTools
+		? [
+				...fullHeader(marker, callText(tool, context), status, context),
+				...(tool.name in TOOL_GLYPHS ? [] : argumentRows(tool.args, context)),
+			]
+		: [header(`${marker}${toolSummary(tool, context)}`, status, context)];
 	const body = toolBody(tool, context);
 	// expanded or not alike while it runs; it keeps to its latest lines meanwhile
 	lines.push(
@@ -385,7 +390,10 @@ function renderBash(bash: BashState, context: RenderContext): Line[] {
 			: bash.exitCode !== undefined && bash.exitCode !== 0
 				? `${failMark(charset)} exit ${bash.exitCode}`
 				: okMark(charset);
-	const lines: Line[] = [header(`${bash.excluded ? "!!" : "!"} ${oneLine(bash.command)}`, status, context)];
+	const prompt = bash.excluded ? "!! " : "! ";
+	const lines: Line[] = context.expandTools
+		? fullHeader(prompt, bash.command.trim(), status, context)
+		: [header(`${prompt}${oneLine(bash.command)}`, status, context)];
 	const limit = context.expandTools ? 400 : 5;
 	lines.push(...gutter(outputLines(bash.output, context.charset), limit, "tail", context));
 	return lines;
@@ -438,6 +446,53 @@ function header(summary: string, status: string, context: RenderContext): Line {
 	const room = Math.max(4, width - statusCells.length - 1);
 	const left = truncateCells(charset.cells(summary), room, charset.cells("…"));
 	return { cells: [...padCells(left, width - statusCells.length), ...statusCells], attr: LINE_SINGLE };
+}
+
+function fullHeader(prefix: string, text: string, status: string, context: RenderContext): Line[] {
+	const { charset, width } = context;
+	const statusCells = charset.cells(status);
+	const lead = charset.cells(prefix);
+	const room = Math.max(4, width - statusCells.length - 1 - lead.length);
+	const full = Math.max(4, width - lead.length);
+	const [first = "", ...rest] = expandTabs(text).split("\n");
+	const rows = [
+		...wrapHanging(charset.cells(first), room, full),
+		...rest.flatMap((line) => wrapCells(charset.cells(line), full)),
+	];
+	return rows.map(
+		(row, index): Line => ({
+			cells:
+				index === 0
+					? [...padCells([...lead, ...row], width - statusCells.length), ...statusCells]
+					: [...spaces(lead.length), ...row],
+			attr: LINE_SINGLE,
+		}),
+	);
+}
+
+function argumentRows(args: Record<string, unknown>, context: RenderContext): Line[] {
+	const { charset, width } = context;
+	const rows: number[][] = [];
+	for (const [name, value] of Object.entries(args ?? {})) {
+		const text = typeof value === "string" ? value : (JSON.stringify(value) ?? String(value));
+		const lines = expandTabs(text).split("\n");
+		if (lines.length === 1) {
+			const wrapped = wrapHanging(charset.cells(`${name}: ${lines[0]}`), width - 2, width - 4);
+			rows.push(...wrapped.map((row, index) => [...spaces(index === 0 ? 2 : 4), ...row]));
+			continue;
+		}
+		rows.push([...spaces(2), ...charset.cells(`${name}:`)]);
+		for (const line of lines)
+			rows.push(...wrapCells(charset.cells(line), width - 4).map((row) => [...spaces(4), ...row]));
+	}
+	return rows.map((cells) => ({ cells, attr: LINE_SINGLE }));
+}
+
+function wrapHanging(cells: number[], first: number, rest: number): number[][] {
+	const head = wrapCells(cells, first)[0] ?? [];
+	let at = head.length;
+	while (at < cells.length && isSpace(cells[at]!)) at++;
+	return at < cells.length ? [head, ...wrapCells(cells.slice(at), rest)] : [head];
 }
 
 interface BodyLine {
@@ -512,6 +567,38 @@ function outputCells(line: string, charset: Charset, attrs = 0): number[] {
 function toolSummary(tool: ToolState, context: RenderContext): string {
 	const summary = toolArguments(tool.name, tool.args, context);
 	return tool.name in TOOL_GLYPHS ? summary : `${tool.name} ${summary}`.trim();
+}
+
+function callText(tool: ToolState, context: RenderContext): string {
+	const { name, args } = tool;
+	const limit = numberArg(args, "limit");
+	switch (name) {
+		case "bash": {
+			const timeout = numberArg(args, "timeout");
+			return `${(stringArg(args, "command") ?? "").trim()}${options([timeout !== undefined && `timeout ${timeout}s`])}`;
+		}
+		case "grep": {
+			const glob = stringArg(args, "glob");
+			const lines = numberArg(args, "context");
+			return `${toolArguments(name, args, context)}${options([
+				glob && `glob ${glob}`,
+				args?.ignoreCase === true && "ignore case",
+				args?.literal === true && "literal",
+				lines !== undefined && `context ${lines}`,
+				limit !== undefined && `limit ${limit}`,
+			])}`;
+		}
+		case "find":
+		case "ls":
+			return `${toolArguments(name, args, context)}${options([limit !== undefined && `limit ${limit}`])}`;
+		default:
+			return name in TOOL_GLYPHS ? toolArguments(name, args, context) : name;
+	}
+}
+
+function options(parts: Array<string | false | undefined>): string {
+	const shown = parts.filter((part) => typeof part === "string" && part !== "");
+	return shown.length > 0 ? ` (${shown.join(", ")})` : "";
 }
 
 export function toolArguments(

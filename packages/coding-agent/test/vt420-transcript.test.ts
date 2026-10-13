@@ -228,6 +228,48 @@ describe("vt420 transcript tools", () => {
 		expect(linesText(typed.render(context()))).toEqual([`!! make make test${" ".repeat(22)}√`]);
 	});
 
+	it("shows the whole call once expanded, the command with its line breaks and every argument", () => {
+		const expanded = { ...context(), expandTools: true };
+		const call = (name: string, args: Record<string, unknown>): string[] =>
+			linesText(
+				new TranscriptBlock(1, { kind: "tool", tool: { name, args, status: "done", output: "" } }).render(expanded),
+			);
+		expect(call("bash", { command: 'for f in *.ts; do\n  echo "$f"\ndone', timeout: 30 })).toEqual([
+			`$ for f in *.ts; do${" ".repeat(20)}√`,
+			'    echo "$f"',
+			"  done (timeout 30s)",
+		]);
+		expect(call("bash", { command: "echo one two three four five six seven eight nine ten" })).toEqual([
+			`$ echo one two three four five six${" ".repeat(5)}√`,
+			"  seven eight nine ten",
+		]);
+		expect(call("grep", { pattern: "TODO", glob: "*.md", ignoreCase: true })).toEqual([
+			`∼ TODO (glob *.md, ignore case)${" ".repeat(8)}√`,
+		]);
+		expect(call("find", { pattern: "*.ts", path: "/work/src", limit: 50 })).toEqual([
+			`∇ *.ts in src (limit 50)${" ".repeat(15)}√`,
+		]);
+		expect(call("codemode", { code: "const a = 1;\nreturn a;", timeoutMs: 500 })).toEqual([
+			`ƒ codemode${" ".repeat(29)}√`,
+			"  code:",
+			"    const a = 1;",
+			"    return a;",
+			"  timeoutMs: 500",
+		]);
+		const typed = new TranscriptBlock(1, {
+			kind: "bash",
+			bash: {
+				command: "make\nmake test",
+				output: "",
+				running: false,
+				cancelled: false,
+				excluded: true,
+				startedAt: 0,
+			},
+		});
+		expect(linesText(typed.render(expanded))).toEqual([`!! make${" ".repeat(32)}√`, "   make test"]);
+	});
+
 	it("expands the output of a tool still running, as of one done", () => {
 		for (const block of [bash, grep]) {
 			for (const running of [true, false]) {

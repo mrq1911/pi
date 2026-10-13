@@ -897,6 +897,27 @@ describe("vt420 app", () => {
 		await app.done;
 	});
 
+	it("expands a tool call with PF4, the command with its line breaks", async () => {
+		const harness = await createHarness({ tools: [echoBash] });
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("bash", { command: "cd src &&\n  ls -la" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("listed"),
+		]);
+		const app = await start(harness);
+		await app.submit("list");
+		await waitForIdle(harness);
+		expect(app.screen()).toMatch(/\$ cd src && ls -la +√/);
+		await app.key("pf4");
+		const rows = app.emulator.screen();
+		const call = rows.findIndex((line) => line.startsWith("$ cd src &&"));
+		expect(rows[call]).toMatch(/^\$ cd src && +√$/);
+		expect(rows[call + 1]?.trimEnd()).toBe("    ls -la");
+		expect(rows[call + 2]?.trimEnd()).toBe("  │ line one");
+		await app.key("ctrl+d");
+		await app.done;
+	});
+
 	it("opens help, the model selector and the character set showcase", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
