@@ -69,9 +69,7 @@ describe("vt420 transcript thinking", () => {
 		expect(more).toEqual(["∴ ...ck footerCells, then the tests pass"]);
 	});
 
-	it("settles on the start of the thinking once it is done", () => {
-		const done = ["∴ Reading the footer · The user wants..."];
-		expect(linesText(thinkingBlock(THINKING, false).render(context()))).toEqual(done);
+	it("settles on how long it thought once it is done, or else how many tokens", () => {
 		const answering = new TranscriptBlock(1, {
 			kind: "assistant",
 			message: reply([
@@ -79,8 +77,26 @@ describe("vt420 transcript thinking", () => {
 				{ type: "text", text: "Done." },
 			]),
 			streaming: true,
+			thinkingTimes: new Map([[0, { since: 1000, until: 93_400 }]]),
 		});
-		expect(linesText(answering.render(context()))).toEqual([...done, "", "Done."]);
+		expect(linesText(answering.render(context()))).toEqual(["∴ Thought for 1 min 32 sec", "", "Done."]);
+		expect(linesText(thinkingBlock(THINKING, false).render(context()))).toEqual(["∴ Thought for ≃26 tokens"]);
+		const counted = (content: AssistantMessage["content"]): string[] =>
+			linesText(
+				new TranscriptBlock(1, {
+					kind: "assistant",
+					message: { ...reply(content), usage: { ...reply([]).usage, output: 1500, reasoning: 1234 } },
+					streaming: false,
+				}).render(context()),
+			);
+		expect(counted([{ type: "thinking", thinking: THINKING }])).toEqual(["∴ Thought for 1.2k tokens"]);
+		const twice = counted([
+			{ type: "thinking", thinking: "one" },
+			{ type: "toolCall", id: "a", name: "ls", arguments: {} },
+			{ type: "thinking", thinking: "two two two" },
+		]);
+		expect(twice).toEqual(["∴ Thought for ≃1 token", "∴ Thought for ≃3 tokens"]);
+		expect(linesText(thinkingBlock("", false).render(context()))).toEqual(["∴ Thought"]);
 		const expanded = linesText(thinkingBlock(THINKING, false).render(context(true)));
 		expect(expanded[0]).toBe("∴ **Reading the footer**");
 		expect(expanded.length).toBeGreaterThan(3);
@@ -184,6 +200,33 @@ describe("vt420 transcript tools", () => {
 			kind: "tool",
 			tool: { name: "grep", args: { pattern: "line" }, status: running ? "running" : "done", output, startedAt: 0 },
 		});
+
+	it("puts a command on one line, as much of it as fits", () => {
+		const done = (command: string): string[] =>
+			linesText(
+				new TranscriptBlock(1, {
+					kind: "tool",
+					tool: { name: "bash", args: { command }, status: "done", output: "" },
+				}).render(context()),
+			);
+		expect(done("make \\\n  -j4\nmake test")).toEqual([`$ make -j4 make test${" ".repeat(19)}√`]);
+		const long = done(
+			`npm test -- --run \\\n${["a", "b", "c", "d"].map((name) => `  test/${name}.test.ts`).join("\n")}`,
+		);
+		expect(long).toEqual(["$ npm test -- --run test/a.test.ts ... √"]);
+		const typed = new TranscriptBlock(1, {
+			kind: "bash",
+			bash: {
+				command: "make\nmake test",
+				output: "",
+				running: false,
+				cancelled: false,
+				excluded: true,
+				startedAt: 0,
+			},
+		});
+		expect(linesText(typed.render(context()))).toEqual([`!! make make test${" ".repeat(22)}√`]);
+	});
 
 	it("expands the output of a tool still running, as of one done", () => {
 		for (const block of [bash, grep]) {

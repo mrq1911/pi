@@ -92,7 +92,7 @@ describe("vt420 session tree", () => {
 		expect(rows.map((row) => row.text)).toEqual([
 			"user: go",
 			"[read]: src/app.ts:10-14",
-			"[bash]: npm test …",
+			"[bash]: npm test npm run check",
 			"[grep]: TODO in ~/notes",
 			'[search]: {"query":"vt420"}',
 			"[write]",

@@ -1,5 +1,5 @@
 /**
- * Times in words for the status line and the session list.
+ * Times in words for the status line, the session list and the transcript.
  */
 
 /** How long ago `date` was, in words: "just now", "5 min ago", "3 hours ago", "yesterday", "2 weeks ago". */
@@ -27,4 +27,13 @@ export function formatDuration(seconds: number): string {
 	const minutes = Math.floor(whole / 60);
 	if (minutes < 60) return `${minutes}m ${String(whole % 60).padStart(2, "0")}s`;
 	return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
+}
+
+export function formatSpan(seconds: number): string {
+	const whole = Math.max(1, Math.round(seconds));
+	if (whole < 60) return `${whole} sec`;
+	const minutes = Math.floor(whole / 60);
+	if (minutes < 60) return whole % 60 === 0 ? `${minutes} min` : `${minutes} min ${whole % 60} sec`;
+	const hours = `${Math.floor(minutes / 60)} ${minutes < 120 ? "hour" : "hours"}`;
+	return minutes % 60 === 0 ? hours : `${hours} ${minutes % 60} min`;
 }

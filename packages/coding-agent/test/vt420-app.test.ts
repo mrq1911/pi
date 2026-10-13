@@ -654,6 +654,34 @@ describe("vt420 app", () => {
 		await app.done;
 	});
 
+	it("says how long it thought, after /tree too, and how many tokens where it did not see it", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxThinking("Before the frontend"), fauxText("answer zero")]),
+			fauxAssistantMessage([fauxThinking("Consider the question"), fauxText("answer one")]),
+			fauxAssistantMessage("answer two"),
+		]);
+		await harness.session.prompt("question zero");
+		const app = await start(harness, { rows: 36 });
+		await app.submit("first question");
+		await waitForIdle(harness);
+		await app.submit("second question");
+		await waitForIdle(harness);
+		const thoughts = (): string[] => app.emulator.screen().filter((line) => line.startsWith("∴"));
+		expect(thoughts()).toEqual(["∴ Thought for ≃5 tokens", "∴ Thought for 1 sec"]);
+		await app.submit("/tree");
+		await app.type("second question");
+		await app.key("return");
+		await app.key("return");
+		await settle(200);
+		expect(app.screen()).not.toContain("answer two");
+		expect(thoughts()).toEqual(["∴ Thought for ≃5 tokens", "∴ Thought for 1 sec"]);
+		await app.key("ctrl+c");
+		await app.key("ctrl+d");
+		await app.done;
+	});
+
 	it("moves to an earlier point with /tree and forks from a message with /fork", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
@@ -841,7 +869,8 @@ describe("vt420 app", () => {
 		await waitForIdle(harness);
 		const screen = app.screen();
 		expect(screen).toContain("π list files");
-		expect(screen).toContain("∴ Consider the directory first");
+		expect(screen).toContain("∴ Thought for 1 sec");
+		expect(screen).not.toContain("Consider the directory first");
 		expect(screen).toMatch(/\$ ls -la\s+√/);
 		expect(screen).toContain("  │ line one");
 		expect(screen).toContain("  └ line two");

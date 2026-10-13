@@ -13,6 +13,7 @@ import { basename, join } from "node:path";
 import {
 	type Api,
 	type AssistantMessage,
+	type AssistantMessageEvent,
 	type AuthEvent,
 	type AuthPrompt,
 	getSupportedThinkingLevels,
@@ -86,6 +87,7 @@ import {
 	type BashState,
 	type RenderContext,
 	SPINNER,
+	type ThinkingTimes,
 	type ToolState,
 	Transcript,
 	type TranscriptBlock,
@@ -353,6 +355,8 @@ export class Vt420App {
 	private footer: FooterStats = { input: 0, output: 0, cacheRead: 0, contextTokens: null, contextWindow: 0 };
 	private readonly speed = new SpeedMeter();
 	private readonly tools = new Map<string, TranscriptBlock>();
+	// for transcripts rebuilt from the session, which does not record how long thinking took
+	private readonly thinkingTimes = new WeakMap<AssistantMessage, ThinkingTimes>();
 	private streaming: TranscriptBlock | undefined;
 	private unsubscribe: (() => void) | undefined;
 	private renderTimer: ReturnType<typeof setTimeout> | undefined;
@@ -595,7 +599,12 @@ export class Vt420App {
 					break;
 				}
 				case "assistant":
-					this.transcript.add({ kind: "assistant", message, streaming: false });
+					this.transcript.add({
+						kind: "assistant",
+						message,
+						streaming: false,
+						thinkingTimes: this.thinkingTimes.get(message),
+					});
 					for (const content of message.content) {
 						if (content.type !== "toolCall") continue;
 						const failed = message.stopReason === "aborted" || message.stopReason === "error";
@@ -694,7 +703,12 @@ export class Vt420App {
 					if (text.trim()) this.transcript.add({ kind: "user", text });
 					this.follow = true;
 				} else if (event.message.role === "assistant") {
-					this.streaming = this.transcript.add({ kind: "assistant", message: event.message, streaming: true });
+					this.streaming = this.transcript.add({
+						kind: "assistant",
+						message: event.message,
+						streaming: true,
+						thinkingTimes: new Map(),
+					});
 					this.speed.start();
 					this.rainSeen = 0;
 				} else if (event.message.role === "custom" && event.message.display) {
@@ -703,6 +717,7 @@ export class Vt420App {
 				break;
 			case "message_update":
 				if (event.message.role === "assistant" && this.streaming) {
+					this.timeThinking(event.assistantMessageEvent);
 					this.updateAssistant(event.message);
 					this.speed.update(event.message, Date.now());
 					this.feedRain(event.message);
@@ -804,11 +819,27 @@ export class Vt420App {
 		}
 	}
 
+	private timeThinking(event: AssistantMessageEvent): void {
+		const content = this.streaming?.content;
+		const times = content?.kind === "assistant" ? content.thinkingTimes : undefined;
+		if (event.type === "thinking_start") times?.set(event.contentIndex, { since: Date.now() });
+		else if (event.type === "thinking_end") {
+			const time = times?.get(event.contentIndex);
+			if (time) time.until = Date.now();
+		}
+	}
+
 	private endStreaming(): void {
 		const block = this.streaming;
 		this.streaming = undefined;
 		if (block?.content.kind !== "assistant" || !block.content.streaming) return;
 		block.content.streaming = false;
+		const times = block.content.thinkingTimes;
+		if (times) {
+			// thinking cut short by an abort or an error never gets its end
+			for (const time of times.values()) time.until ??= Date.now();
+			this.thinkingTimes.set(block.content.message, times);
+		}
 		block.touch();
 	}
 

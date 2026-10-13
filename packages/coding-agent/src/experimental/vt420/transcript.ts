@@ -14,8 +14,9 @@ import { ATTR_BOLD, BLANK, isSpace, LINE_SINGLE, type Line } from "@mrq/vt420/ce
 import type { Charset } from "@mrq/vt420/charset.js";
 import { expandTabs, hardWrap, padCells, spaces, stripAnsi, truncateCells, wrapCells } from "@mrq/vt420/text.js";
 import { parseSkillBlock } from "../../core/agent-session.ts";
-import { formatDuration } from "./format.ts";
+import { formatDuration, formatSpan } from "./format.ts";
 import { renderMarkdown } from "./markdown.ts";
+import { formatTokens } from "./widgets.ts";
 
 export const SPINNER = ["⎺", "⎻", "─", "⎼", "⎽", "⎼", "─", "⎻"];
 
@@ -55,9 +56,11 @@ export interface BashState {
 	startedAt: number;
 }
 
+export type ThinkingTimes = Map<number, { since: number; until?: number }>;
+
 export type BlockContent =
 	| { kind: "user"; text: string }
-	| { kind: "assistant"; message: AssistantMessage; streaming: boolean }
+	| { kind: "assistant"; message: AssistantMessage; streaming: boolean; thinkingTimes?: ThinkingTimes }
 	| { kind: "tool"; tool: ToolState }
 	| { kind: "bash"; bash: BashState }
 	| { kind: "notice"; level: "info" | "warning" | "error"; text: string }
@@ -154,7 +157,7 @@ function renderBlock(content: BlockContent, context: RenderContext): Line[] {
 		case "user":
 			return renderUser(content.text, context);
 		case "assistant":
-			return renderAssistant(content.message, content.streaming, context);
+			return renderAssistant(content.message, content.streaming, content.thinkingTimes, context);
 		case "tool":
 			return renderTool(content.tool, context);
 		case "bash":
@@ -193,7 +196,12 @@ function renderUser(text: string, context: RenderContext): Line[] {
 	];
 }
 
-function renderAssistant(message: AssistantMessage, streaming: boolean, context: RenderContext): Line[] {
+function renderAssistant(
+	message: AssistantMessage,
+	streaming: boolean,
+	thinkingTimes: ThinkingTimes | undefined,
+	context: RenderContext,
+): Line[] {
 	const { charset, width } = context;
 	const out: Line[] = [];
 	for (const [index, content] of message.content.entries()) {
@@ -201,9 +209,10 @@ function renderAssistant(message: AssistantMessage, streaming: boolean, context:
 			const thinking = content.thinking.trim();
 			const live = streaming && index === message.content.length - 1;
 			if (!context.showThinking) {
-				if (live && context.rollThinking)
+				if (!live) out.push(thoughtLine(message, index, thinkingTimes, context));
+				else if (context.rollThinking)
 					out.push(...thinkingWindow(thinking, `${message.timestamp}:${index}`, context));
-				else out.push(thinkingLine(thinking, live, context));
+				else out.push(thinkingLine(thinking, context));
 				continue;
 			}
 			const lines = expandTabs(thinking || "thinking")
@@ -234,11 +243,8 @@ function renderAssistant(message: AssistantMessage, streaming: boolean, context:
 	return out;
 }
 
-/**
- * Collapsed thinking on one line: while it streams, the latest tokens, scrolling left as they arrive; once
- * done, its start.
- */
-function thinkingLine(thinking: string, live: boolean, context: RenderContext): Line {
+/** Live thinking on one line: the latest tokens, scrolling left as they arrive. */
+function thinkingLine(thinking: string, context: RenderContext): Line {
 	const { charset, width } = context;
 	const marker = charset.pick("∴", "»");
 	const prefix = charset.cells(`${marker} `);
@@ -248,17 +254,44 @@ function thinkingLine(thinking: string, live: boolean, context: RenderContext): 
 	let cells: number[] = [];
 	for (let take = room * 2; ; take *= 2) {
 		const whole = take >= thinking.length;
-		const part = whole ? thinking : live ? thinking.slice(-take) : thinking.slice(0, take);
-		cells = charset.cells(flattenThinking(part));
+		cells = charset.cells(flattenThinking(whole ? thinking : thinking.slice(-take)));
 		if (whole || cells.length > room) break;
 	}
 	if (cells.length === 0) return { cells: charset.cells(`${marker} thinking`), attr: LINE_SINGLE };
-	if (live) cells = glowLastWords(cells, GLOW_WORDS).cells;
+	cells = glowLastWords(cells, GLOW_WORDS).cells;
 	if (cells.length > room) {
 		const cut = room > ellipsis.length ? ellipsis : [];
-		cells = live ? [...cut, ...cells.slice(cells.length - room + cut.length)] : truncateCells(cells, room, ellipsis);
+		cells = [...cut, ...cells.slice(cells.length - room + cut.length)];
 	}
 	return { cells: [...prefix, ...cells], attr: LINE_SINGLE };
+}
+
+function thoughtLine(
+	message: AssistantMessage,
+	index: number,
+	thinkingTimes: ThinkingTimes | undefined,
+	context: RenderContext,
+): Line {
+	const { charset } = context;
+	const time = thinkingTimes?.get(index);
+	let took = "";
+	if (time?.until !== undefined) took = ` for ${formatSpan((time.until - time.since) / 1000)}`;
+	else {
+		const tokens = thinkingTokens(message, index);
+		const about = tokens?.estimated ? charset.pick("≃", "~") : "";
+		if (tokens) took = ` for ${about}${formatTokens(tokens.count)} token${tokens.count === 1 ? "" : "s"}`;
+	}
+	return { cells: charset.cells(`${charset.pick("∴", "»")} Thought${took}`), attr: LINE_SINGLE };
+}
+
+function thinkingTokens(message: AssistantMessage, index: number): { count: number; estimated: boolean } | undefined {
+	// the provider's count covers the whole reply, so it only fits one with a single thinking block
+	const reasoning = message.usage?.reasoning;
+	if (reasoning && message.content.filter((content) => content.type === "thinking").length === 1)
+		return { count: reasoning, estimated: false };
+	const content = message.content[index];
+	const chars = content?.type === "thinking" ? content.thinking.trim().length : 0;
+	return chars > 0 ? { count: Math.ceil(chars / 4), estimated: true } : undefined;
 }
 
 /**
@@ -352,7 +385,7 @@ function renderBash(bash: BashState, context: RenderContext): Line[] {
 			: bash.exitCode !== undefined && bash.exitCode !== 0
 				? `${failMark(charset)} exit ${bash.exitCode}`
 				: okMark(charset);
-	const lines: Line[] = [header(`${bash.excluded ? "!!" : "!"} ${firstLine(bash.command)}`, status, context)];
+	const lines: Line[] = [header(`${bash.excluded ? "!!" : "!"} ${oneLine(bash.command)}`, status, context)];
 	const limit = context.expandTools ? 400 : 5;
 	lines.push(...gutter(outputLines(bash.output, context.charset), limit, "tail", context));
 	return lines;
@@ -489,7 +522,7 @@ export function toolArguments(
 	const path = (): string => shortenPath(stringArg(args, "path") ?? stringArg(args, "file_path") ?? "", context);
 	switch (name) {
 		case "bash":
-			return firstLine(stringArg(args, "command") ?? "");
+			return oneLine(stringArg(args, "command") ?? "");
 		case "read": {
 			const offset = numberArg(args, "offset");
 			const limit = numberArg(args, "limit");
@@ -565,9 +598,11 @@ function numberArg(args: Record<string, unknown>, name: string): number | undefi
 	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-function firstLine(text: string): string {
-	const lines = text.trim().split("\n");
-	return lines.length > 1 ? `${lines[0]} …` : (lines[0] ?? "");
+function oneLine(command: string): string {
+	return command
+		.replace(/\\\r?\n/g, " ")
+		.replace(/\s+/g, " ")
+		.trim();
 }
 
 export function shortenPath(path: string, context: Pick<RenderContext, "cwd" | "home">): string {

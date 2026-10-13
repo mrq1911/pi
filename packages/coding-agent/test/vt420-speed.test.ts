@@ -1,6 +1,6 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
-import { formatAge, formatDuration } from "../src/experimental/vt420/format.ts";
+import { formatAge, formatDuration, formatSpan } from "../src/experimental/vt420/format.ts";
 import { SpeedMeter } from "../src/experimental/vt420/speed.ts";
 
 function reply(text: string, output = 0, stopReason: AssistantMessage["stopReason"] = "stop"): AssistantMessage {
@@ -67,6 +67,22 @@ describe("vt420 durations", () => {
 			"1h 00m",
 			"1h 40m",
 			"25h 01m",
+		]);
+	});
+
+	it("says how long something took in words, a second at least", () => {
+		expect([0, 0.4, 45, 59.6, 92.4, 120, 3599, 3600, 3900, 7200, 7380].map(formatSpan)).toEqual([
+			"1 sec",
+			"1 sec",
+			"45 sec",
+			"1 min",
+			"1 min 32 sec",
+			"2 min",
+			"59 min 59 sec",
+			"1 hour",
+			"1 hour 5 min",
+			"2 hours",
+			"2 hours 3 min",
 		]);
 	});
 });

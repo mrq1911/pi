@@ -66,7 +66,10 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
   terminal smooth-scrolls the pair up a line (DECSCLM for that one scroll, inside its own DECSTBM margins), so the
   latest tokens are always in view and the text rolls on like paper, the holes in both its margins feeding up with it.
   Emulators, which do not scroll smoothly, get one line that scrolls left instead. Either way the newest three words glow
-  in bold. Once the model moves on, it settles on one line with how the thinking started. PF3 shows all of it.
+  in bold. Once the model moves on, it settles on one line with how long it took, `∴ Thought for 1 min 32 sec`.
+  Sessions do not record that, so in a resumed one it says how many tokens instead: the provider's count where it
+  reports one, `∴ Thought for 1.2k tokens`, or else four characters to a token, `∴ Thought for ≃1.2k tokens`. PF3 shows
+  all of it. Tool calls show their command on one line, line breaks and continuations joined, as much as fits.
 - **Bandwidth**: a diff renderer with relative cursor moves, IND/RI hardware scrolling inside DECSTBM margins, DCH to
   scroll the emulators' thinking ticker in place, ECH and DECFRA for long rules. A frame goes to a DEC terminal in
   pieces of 96 bytes at most, each ending with a DSR request (DA1 where the terminal ignores DSR), and pieces go out
