@@ -357,6 +357,12 @@ await env.exec(["git", "status", "--porcelain=v2", "-z"], {
 
 Abort the context to stop one call; `cleanup()` is for shutting the environment down. A custom environment can check itself with `registerEnvConformance()` from `@earendil-works/pi-durable/testing`, like storage below.
 
+Some environments also implement the optional `listFiles()`: the files and directories below a directory at any depth, as `fd` lists them, skipping what git ignores and stopping at bounds with `truncated`. `NodeExecutionEnv` does not; pi-env's `RemoteExecutionEnv` and `LocalExecutionEnv` do. Callers fall back to their own walk when the method is missing or fails with `not_supported`:
+
+```typescript
+const listing = await env.listFiles?.(".", { exclude: ["node_modules"], maxEntries: 50_000 }, context);
+```
+
 ## Reload
 
 Installing an extension with an installed name replaces it in place, in one step:
@@ -655,6 +661,23 @@ const usage = await harness.usage(context); // { models: { "openai/gpt-6-sol": U
 | SQLite | `openNodeSqliteStorage(file)` from `@earendil-works/pi-durable/storage/sqlite/node` | One database file. WAL mode with `synchronous = NORMAL`: commits survive process crashes; the newest may be lost on power or host failure. |
 | JSONL | `openNodeJsonlStorage(directory, context)` from `@earendil-works/pi-durable/storage/jsonl/node` | Append-only files in one directory. Pass `{ fsync: true }` to flush before each commit marker. Keeps the whole history in memory too, so memory grows with it; use SQLite for long-running agents. |
 | Cloudflare Durable Object | `openDurableObjectSqliteStorage(ctx.storage)` from `@earendil-works/pi-durable/storage/sqlite/cloudflare` | The SQLite storage of one SQLite-backed Durable Object; commits are its storage transactions. |
+
+SQLite storage can namespace its tables and indexes when sharing a database: pass `{ prefix: "pi_" }` to
+`SqliteStorage.open(database, options)`, `openNodeSqliteStorage(path, options)`, or
+`openDurableObjectSqliteStorage(ctx.storage, options)`. Storage renders the prefixed names into its SQL, so adapters
+need no support. A prefix must be a SQLite identifier and cannot begin with `sqlite_`; a host may reserve more, such
+as `_cf_` in Durable Objects. Changing the prefix does not migrate existing data.
+
+Multiple Pi storages opened through the Cloudflare adapter with the same storage object automatically share an
+operation queue. To share the database with host tables, create an adapter and use it for both Pi and all host queries;
+direct storage calls bypass the queue and may be rolled back with a Pi transaction:
+
+```typescript
+const database = new DurableObjectSqliteDatabase(ctx.storage);
+const piStorage = await SqliteStorage.open(database, { prefix: "pi_" });
+await database.exec("CREATE TABLE IF NOT EXISTS host_notes (text TEXT)");
+await database.run("INSERT INTO host_notes (text) VALUES (?)", text);
+```
 
 One process owns a storage at a time; there is no cross-process locking. The portable SQLite and JSONL cores (`/storage/sqlite`, `/storage/jsonl`) run without Node APIs, for example on Bun or in Cloudflare Durable Objects, given an asynchronous `SqliteDatabase` facade or a `FileSystem` from `@earendil-works/pi-durable/env`.
 
