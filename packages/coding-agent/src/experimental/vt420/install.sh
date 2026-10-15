@@ -11,7 +11,7 @@ if [[ "${1:-}" != "--no-pull" ]]; then
 	before="$(git rev-parse HEAD)"
 	git pull --ff-only --quiet
 	after="$(git rev-parse HEAD)"
-	if [[ "$before" != "$after" ]]; then git log --oneline "$before..$after" | head -20; fi
+	if [[ "$before" != "$after" ]]; then git --no-pager log --oneline -20 "$before..$after"; fi
 fi
 
 # third-party dependencies, only when the lockfile changed since the last install
