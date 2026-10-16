@@ -52,7 +52,7 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
 - **Special Graphics everywhere**: π prompt, boxes and tables in line drawing, ◆ bullets, ▒ gauges, a bouncing
   ⎺⎻─⎼⎽ scan-line spinner, scan-line sparklines, control pictures (␍ ␌ ␋) for stray controls in tool output, and ␤
   marking typed newlines in the editor.
-- **DEC Technical**: ↑ ↓ token counters, ≃ live speed estimates, √ and × tool results, ∴ thinking, Δ edits, ≡ reads,
+- **DEC Technical**: ↑ ↓ token counters, ≃ live speed estimates, √ and × tool results, ∴ thinking, Δ edits, ↑ reads,
   Greek and mathematics from model output, and multi-row Σ, ∫, √, brackets and braces from the composite pieces
   (`/charset`).
 - **Unicode transliteration**: everything else maps to the nearest glyph (heavy and rounded box drawing, typographic

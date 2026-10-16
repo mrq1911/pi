@@ -4,7 +4,7 @@
  * Every block renders to lines of cells for a given width and caches the result until its content, the
  * width or a display toggle changes. Running blocks re-render per spinner tick; finished blocks never do.
  *
- * Glyphs: user turns are boxed in line drawing and led by π; thinking is ∴; tools are ≡ read, ← write, Δ edit,
+ * Glyphs: user turns are boxed in line drawing and led by π; thinking is ∴; tools are ↑ read, ← write, Δ edit,
  * $ bash, ∼ grep, ∇ find, ├ ls and ƒ for everything else; √ and × close a tool; a bouncing scan line
  * (⎺⎻─⎼⎽) marks work in progress.
  */
@@ -343,7 +343,7 @@ function flattenThinking(text: string): string {
 }
 
 const TOOL_GLYPHS: Record<string, string> = {
-	read: "≡",
+	read: "↑",
 	write: "←",
 	edit: "Δ",
 	bash: "$",

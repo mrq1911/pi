@@ -20,12 +20,13 @@ export function formatAge(date: Date, now: Date = new Date()): string {
 	return ago(Math.floor(days / 365), "year");
 }
 
-/** "45s", "3m 07s" or "1h 05m": seconds tick while it is short, minutes once it runs for hours. */
+/** "45s", "3m 07s", "25m" or "1h 05m": seconds tick for the first ten minutes, minutes after that. */
 export function formatDuration(seconds: number): string {
 	const whole = Math.max(0, Math.floor(seconds));
 	if (whole < 60) return `${whole}s`;
 	const minutes = Math.floor(whole / 60);
-	if (minutes < 60) return `${minutes}m ${String(whole % 60).padStart(2, "0")}s`;
+	if (minutes < 10) return `${minutes}m ${String(whole % 60).padStart(2, "0")}s`;
+	if (minutes < 60) return `${minutes}m`;
 	return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
 }
 
@@ -33,7 +34,8 @@ export function formatSpan(seconds: number): string {
 	const whole = Math.max(1, Math.round(seconds));
 	if (whole < 60) return `${whole} sec`;
 	const minutes = Math.floor(whole / 60);
-	if (minutes < 60) return whole % 60 === 0 ? `${minutes} min` : `${minutes} min ${whole % 60} sec`;
+	if (minutes < 10 && whole % 60 !== 0) return `${minutes} min ${whole % 60} sec`;
+	if (minutes < 60) return `${minutes} min`;
 	const hours = `${Math.floor(minutes / 60)} ${minutes < 120 ? "hour" : "hours"}`;
 	return minutes % 60 === 0 ? hours : `${hours} ${minutes % 60} min`;
 }

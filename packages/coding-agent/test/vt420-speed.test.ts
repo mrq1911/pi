@@ -56,14 +56,17 @@ describe("vt420 speed meter", () => {
 });
 
 describe("vt420 durations", () => {
-	it("counts seconds, then minutes and seconds, then hours and minutes", () => {
-		expect([0, 45, 59.9, 60, 187, 3599, 3600, 6000, 90_061].map(formatDuration)).toEqual([
+	it("counts seconds, then minutes and seconds, minutes from ten on, then hours and minutes", () => {
+		expect([0, 45, 59.9, 60, 187, 599, 600, 754, 3599, 3600, 6000, 90_061].map(formatDuration)).toEqual([
 			"0s",
 			"45s",
 			"59s",
 			"1m 00s",
 			"3m 07s",
-			"59m 59s",
+			"9m 59s",
+			"10m",
+			"12m",
+			"59m",
 			"1h 00m",
 			"1h 40m",
 			"25h 01m",
@@ -71,14 +74,16 @@ describe("vt420 durations", () => {
 	});
 
 	it("says how long something took in words, a second at least", () => {
-		expect([0, 0.4, 45, 59.6, 92.4, 120, 3599, 3600, 3900, 7200, 7380].map(formatSpan)).toEqual([
+		expect([0, 0.4, 45, 59.6, 92.4, 120, 599, 754, 3599, 3600, 3900, 7200, 7380].map(formatSpan)).toEqual([
 			"1 sec",
 			"1 sec",
 			"45 sec",
 			"1 min",
 			"1 min 32 sec",
 			"2 min",
-			"59 min 59 sec",
+			"9 min 59 sec",
+			"12 min",
+			"59 min",
 			"1 hour",
 			"1 hour 5 min",
 			"2 hours",

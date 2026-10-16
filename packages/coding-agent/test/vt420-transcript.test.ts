@@ -291,7 +291,7 @@ describe("vt420 transcript tools", () => {
 		const content = Array.from({ length: 42 }, (_, i) => `line ${i + 1}\n`).join("");
 		expect(header({ name: "write", args: { path: "/work/a.ts", content } })).toBe(`← a.ts${" ".repeat(29)}+42 √`);
 		expect(header({ name: "read", args: { path: "/work/a.ts" }, output: content })).toBe(
-			`≡ a.ts${" ".repeat(24)}42 lines √`,
+			`↑ a.ts${" ".repeat(24)}42 lines √`,
 		);
 		const typed = new TranscriptBlock(1, {
 			kind: "bash",
