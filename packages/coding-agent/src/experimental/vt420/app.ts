@@ -618,6 +618,7 @@ export class Vt420App {
 						tool.output = messageText(message.content);
 						tool.details = message.details;
 						tool.status = message.isError ? "error" : "done";
+						tool.durationMs = message.durationMs;
 						block.touch();
 						this.tools.delete(message.toolCallId);
 					}
@@ -767,7 +768,7 @@ export class Vt420App {
 					tool.output = messageText(event.result?.content);
 					tool.details = event.result?.details;
 					tool.status = event.isError ? "error" : "done";
-					tool.endedAt = Date.now();
+					tool.durationMs = event.durationMs;
 					block.touch();
 				}
 				this.tools.delete(event.toolCallId);
@@ -1280,6 +1281,7 @@ export class Vt420App {
 			bash.exitCode = 1;
 		} finally {
 			bash.running = false;
+			bash.durationMs = Date.now() - bash.startedAt;
 			this.bashRunning = false;
 			block.touch();
 			this.requestRender();

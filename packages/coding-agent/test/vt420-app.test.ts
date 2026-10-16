@@ -919,6 +919,34 @@ describe("vt420 app", () => {
 		await app.done;
 	});
 
+	it("says how long a tool ran, as it ends and from the session", async () => {
+		const slow: AgentTool = {
+			name: "slow",
+			label: "slow",
+			description: "Take a while",
+			parameters: Type.Object({}),
+			execute: async () => {
+				await settle(1100);
+				return { content: [{ type: "text", text: "done" }], details: {} };
+			},
+		};
+		const harness = await createHarness({ tools: [slow] });
+		harnesses.push(harness);
+		const run = [
+			fauxAssistantMessage([fauxToolCall("slow", {})], { stopReason: "toolUse" }),
+			fauxAssistantMessage("ok"),
+		];
+		harness.setResponses([...run, ...run]);
+		await harness.session.prompt("before the frontend");
+		const app = await start(harness);
+		await app.submit("again");
+		await waitForIdle(harness);
+		const timed = app.emulator.screen().filter((line) => /^ƒ slow +√ 1s$/.test(line));
+		expect(timed).toHaveLength(2);
+		await app.key("ctrl+d");
+		await app.done;
+	});
+
 	it("opens help, the model selector and the character set showcase", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);

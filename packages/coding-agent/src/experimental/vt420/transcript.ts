@@ -43,7 +43,7 @@ export interface ToolState {
 	output: string;
 	details?: unknown;
 	startedAt?: number;
-	endedAt?: number;
+	durationMs?: number;
 }
 
 export interface BashState {
@@ -54,6 +54,7 @@ export interface BashState {
 	cancelled: boolean;
 	excluded: boolean;
 	startedAt: number;
+	durationMs?: number;
 }
 
 export type ThinkingTimes = Map<number, { since: number; until?: number }>;
@@ -360,8 +361,8 @@ function renderTool(tool: ToolState, context: RenderContext): Line[] {
 	const status = running
 		? spinnerStatus(context, tool.startedAt)
 		: tool.status === "error"
-			? failMark(charset)
-			: `${okMark(charset)} ${doneLabel(tool)}`.trimEnd();
+			? finishedStatus(failMark(charset), "", tool.durationMs)
+			: finishedStatus(okMark(charset), doneLabel(tool), tool.durationMs);
 	const lines: Line[] = context.expandTools
 		? [
 				...fullHeader(marker, callText(tool, context), status, context),
@@ -386,10 +387,10 @@ function renderBash(bash: BashState, context: RenderContext): Line[] {
 	const status = bash.running
 		? spinnerStatus(context, bash.startedAt)
 		: bash.cancelled
-			? `${failMark(charset)} cancelled`
+			? finishedStatus(failMark(charset), "cancelled", bash.durationMs)
 			: bash.exitCode !== undefined && bash.exitCode !== 0
-				? `${failMark(charset)} exit ${bash.exitCode}`
-				: okMark(charset);
+				? finishedStatus(failMark(charset), `exit ${bash.exitCode}`, bash.durationMs)
+				: finishedStatus(okMark(charset), "", bash.durationMs);
 	const prompt = bash.excluded ? "!! " : "! ";
 	const lines: Line[] = context.expandTools
 		? fullHeader(prompt, bash.command.trim(), status, context)
@@ -431,6 +432,11 @@ function okMark(charset: Charset): string {
 
 function failMark(charset: Charset): string {
 	return charset.pick("×", "x");
+}
+
+function finishedStatus(mark: string, label: string, durationMs: number | undefined): string {
+	const took = durationMs !== undefined && durationMs >= 1000 ? formatDuration(durationMs / 1000) : "";
+	return [mark, [label, took].filter(Boolean).join(" · ")].filter(Boolean).join(" ");
 }
 
 function spinnerStatus(context: RenderContext, startedAt: number | undefined): string {

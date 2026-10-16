@@ -5,7 +5,7 @@ import { type Frame, Renderer } from "@mrq/vt420/renderer.js";
 import { charsetDesignations, SESSION_MODES } from "@mrq/vt420/sequences.js";
 import { linesText, Vt420Emulator } from "@mrq/vt420-emu/emulator.js";
 import { describe, expect, it } from "vitest";
-import { type RenderContext, TranscriptBlock } from "../src/experimental/vt420/transcript.ts";
+import { type RenderContext, type ToolState, TranscriptBlock } from "../src/experimental/vt420/transcript.ts";
 
 const WIDTH = 40;
 const THINKING =
@@ -268,6 +268,35 @@ describe("vt420 transcript tools", () => {
 			},
 		});
 		expect(linesText(typed.render(expanded))).toEqual([`!! make${" ".repeat(32)}√`, "   make test"]);
+	});
+
+	it("says how long a tool ran once that is a second or more", () => {
+		const header = (tool: Partial<ToolState>): string | undefined =>
+			linesText(
+				new TranscriptBlock(1, {
+					kind: "tool",
+					tool: { name: "bash", args: { command: "make" }, status: "done", output: "", ...tool },
+				}).render(context()),
+			)[0];
+		expect(header({ durationMs: 65_000 })).toBe(`$ make${" ".repeat(26)}√ 1m 05s`);
+		expect(header({ durationMs: 400 })).toBe(`$ make${" ".repeat(33)}√`);
+		expect(header({ status: "error", durationMs: 2500 })).toBe(`$ make${" ".repeat(30)}× 2s`);
+		const edit = { name: "edit", args: { path: "/work/a.ts" }, details: { diff: "-old\n+new" }, durationMs: 3000 };
+		expect(header(edit)).toBe(`Δ a.ts${" ".repeat(22)}√ +1 -1 · 3s`);
+		const typed = new TranscriptBlock(1, {
+			kind: "bash",
+			bash: {
+				command: "make",
+				output: "",
+				running: false,
+				exitCode: 1,
+				cancelled: false,
+				excluded: false,
+				startedAt: 0,
+				durationMs: 3000,
+			},
+		});
+		expect(linesText(typed.render(context()))[0]).toBe(`! make${" ".repeat(21)}× exit 1 · 3s`);
 	});
 
 	it("expands the output of a tool still running, as of one done", () => {
