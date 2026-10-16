@@ -653,19 +653,22 @@ function doneLabel(tool: ToolState): string {
 			const removed = lines.filter((line) => line.startsWith("-")).length;
 			return `+${added} -${removed}`;
 		}
-		case "read":
-			return countLabel(tool.output);
-		case "write":
-			return countLabel(stringArg(tool.args, "content") ?? "");
+		case "read": {
+			const count = lineCount(tool.output);
+			return count === 0 ? "" : `${count} line${count === 1 ? "" : "s"}`;
+		}
+		case "write": {
+			const count = lineCount(stringArg(tool.args, "content") ?? "");
+			return count === 0 ? "" : `+${count}`;
+		}
 		default:
 			return "";
 	}
 }
 
-function countLabel(text: string): string {
-	if (!text) return "";
-	const count = text.split("\n").length;
-	return `${count} line${count === 1 ? "" : "s"}`;
+function lineCount(text: string): number {
+	if (!text) return 0;
+	return text.split("\n").length - (text.endsWith("\n") ? 1 : 0);
 }
 
 function diffText(details: unknown): string | undefined {

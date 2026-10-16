@@ -288,6 +288,11 @@ describe("vt420 transcript tools", () => {
 		expect(header({ status: "error", durationMs: 2500 })).toBe(`$ make${" ".repeat(30)}2s ×`);
 		const edit = { name: "edit", args: { path: "/work/a.ts" }, details: { diff: "-old\n+new" }, durationMs: 3000 };
 		expect(header(edit)).toBe(`Δ a.ts${" ".repeat(22)}+1 -1 · 3s √`);
+		const content = Array.from({ length: 42 }, (_, i) => `line ${i + 1}\n`).join("");
+		expect(header({ name: "write", args: { path: "/work/a.ts", content } })).toBe(`← a.ts${" ".repeat(29)}+42 √`);
+		expect(header({ name: "read", args: { path: "/work/a.ts" }, output: content })).toBe(
+			`≡ a.ts${" ".repeat(24)}42 lines √`,
+		);
 		const typed = new TranscriptBlock(1, {
 			kind: "bash",
 			bash: {
