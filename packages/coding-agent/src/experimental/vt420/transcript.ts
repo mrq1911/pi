@@ -360,7 +360,7 @@ function renderTool(tool: ToolState, context: RenderContext): Line[] {
 	const status = running
 		? spinnerStatus(context, tool.startedAt)
 		: tool.status === "error"
-			? `${failMark(charset)} ${errorLabel(tool)}`.trimEnd()
+			? failMark(charset)
 			: `${okMark(charset)} ${doneLabel(tool)}`.trimEnd();
 	const lines: Line[] = context.expandTools
 		? [
@@ -654,13 +654,6 @@ function doneLabel(tool: ToolState): string {
 		default:
 			return "";
 	}
-}
-
-function errorLabel(tool: ToolState): string {
-	const exit = /Command exited with code (\d+)/.exec(tool.output);
-	if (exit) return `exit ${exit[1]}`;
-	if (/aborted/i.test(tool.output)) return "aborted";
-	return "";
 }
 
 function countLabel(text: string): string {

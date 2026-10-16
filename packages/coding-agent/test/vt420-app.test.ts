@@ -874,7 +874,8 @@ describe("vt420 app", () => {
 		expect(screen).toMatch(/\$ ls -la\s+√/);
 		expect(screen).toContain("  │ line one");
 		expect(screen).toContain("  └ line two");
-		expect(screen).toMatch(/\$ false && exit\s+× exit 2/);
+		expect(screen).toMatch(/^\$ false && exit +×$/m);
+		expect(screen).toContain("  └ Command exited with code 2");
 		expect(screen).toMatch(/Δ src\/main\.ts\s+√ \+2 -1/);
 		expect(screen).toContain("  │ +1 new line");
 		expect(screen).toContain("Done: all good → ok");
