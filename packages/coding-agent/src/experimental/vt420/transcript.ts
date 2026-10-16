@@ -436,13 +436,13 @@ function failMark(charset: Charset): string {
 
 function finishedStatus(mark: string, label: string, durationMs: number | undefined): string {
 	const took = durationMs !== undefined && durationMs >= 1000 ? formatDuration(durationMs / 1000) : "";
-	return [mark, [label, took].filter(Boolean).join(" · ")].filter(Boolean).join(" ");
+	return [[label, took].filter(Boolean).join(" · "), mark].filter(Boolean).join(" ");
 }
 
 function spinnerStatus(context: RenderContext, startedAt: number | undefined): string {
 	const frame = SPINNER[context.tick % SPINNER.length]!;
 	const seconds = startedAt === undefined ? 0 : Math.floor((context.now - startedAt) / 1000);
-	return seconds >= 2 ? `${frame} ${formatDuration(seconds)}` : frame;
+	return seconds >= 2 ? `${formatDuration(seconds)} ${frame}` : frame;
 }
 
 /** A tool header with its status right-aligned. */

@@ -278,11 +278,16 @@ describe("vt420 transcript tools", () => {
 					tool: { name: "bash", args: { command: "make" }, status: "done", output: "", ...tool },
 				}).render(context()),
 			)[0];
-		expect(header({ durationMs: 65_000 })).toBe(`$ make${" ".repeat(26)}√ 1m 05s`);
+		expect(header({ durationMs: 65_000 })).toBe(`$ make${" ".repeat(26)}1m 05s √`);
 		expect(header({ durationMs: 400 })).toBe(`$ make${" ".repeat(33)}√`);
-		expect(header({ status: "error", durationMs: 2500 })).toBe(`$ make${" ".repeat(30)}× 2s`);
+		const running = new TranscriptBlock(1, {
+			kind: "tool",
+			tool: { name: "bash", args: { command: "make" }, status: "running", output: "", startedAt: 0 },
+		});
+		expect(linesText(running.render({ ...context(), now: 65_000 }))[0]).toBe(`$ make${" ".repeat(26)}1m 05s ⎺`);
+		expect(header({ status: "error", durationMs: 2500 })).toBe(`$ make${" ".repeat(30)}2s ×`);
 		const edit = { name: "edit", args: { path: "/work/a.ts" }, details: { diff: "-old\n+new" }, durationMs: 3000 };
-		expect(header(edit)).toBe(`Δ a.ts${" ".repeat(22)}√ +1 -1 · 3s`);
+		expect(header(edit)).toBe(`Δ a.ts${" ".repeat(22)}+1 -1 · 3s √`);
 		const typed = new TranscriptBlock(1, {
 			kind: "bash",
 			bash: {
@@ -296,7 +301,7 @@ describe("vt420 transcript tools", () => {
 				durationMs: 3000,
 			},
 		});
-		expect(linesText(typed.render(context()))[0]).toBe(`! make${" ".repeat(21)}× exit 1 · 3s`);
+		expect(linesText(typed.render(context()))[0]).toBe(`! make${" ".repeat(21)}exit 1 · 3s ×`);
 	});
 
 	it("expands the output of a tool still running, as of one done", () => {

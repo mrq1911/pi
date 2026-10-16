@@ -876,7 +876,7 @@ describe("vt420 app", () => {
 		expect(screen).toContain("  └ line two");
 		expect(screen).toMatch(/^\$ false && exit +×$/m);
 		expect(screen).toContain("  └ Command exited with code 2");
-		expect(screen).toMatch(/Δ src\/main\.ts\s+√ \+2 -1/);
+		expect(screen).toMatch(/Δ src\/main\.ts\s+\+2 -1 √/);
 		expect(screen).toContain("  │ +1 new line");
 		expect(screen).toContain("Done: all good → ok");
 		// your message sits in a box whose edges replace the blank rows around it, with nothing inverted
@@ -941,7 +941,7 @@ describe("vt420 app", () => {
 		const app = await start(harness);
 		await app.submit("again");
 		await waitForIdle(harness);
-		const timed = app.emulator.screen().filter((line) => /^ƒ slow +√ 1s$/.test(line));
+		const timed = app.emulator.screen().filter((line) => /^ƒ slow +1s √$/.test(line));
 		expect(timed).toHaveLength(2);
 		await app.key("ctrl+d");
 		await app.done;
