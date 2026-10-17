@@ -293,20 +293,20 @@ export interface StatsInfo {
 	perTurnOutput: number[];
 }
 
-/** "↑12k ↓1.2k R40k", or words where the terminal has no arrows. */
+/** "↑12k ↓1.2k «40k »3k", or words where the terminal has no arrows. */
 export function tokenCounts(
 	charset: Charset,
 	tokens: { input: number; output: number; cacheRead: number; cacheWrite?: number },
 ): string {
-	const arrows = charset.has("↑") && charset.has("↓");
+	const arrows = ["↑", "↓", "«", "»"].every((char) => charset.has(char));
 	const parts = [
 		arrows ? `↑${formatTokens(tokens.input)}` : `in ${formatTokens(tokens.input)}`,
 		arrows ? `↓${formatTokens(tokens.output)}` : `out ${formatTokens(tokens.output)}`,
 	];
 	if (tokens.cacheRead)
-		parts.push(arrows ? `R${formatTokens(tokens.cacheRead)}` : `cache ${formatTokens(tokens.cacheRead)}`);
+		parts.push(arrows ? `«${formatTokens(tokens.cacheRead)}` : `cache ${formatTokens(tokens.cacheRead)}`);
 	if (tokens.cacheWrite)
-		parts.push(arrows ? `W${formatTokens(tokens.cacheWrite)}` : `written ${formatTokens(tokens.cacheWrite)}`);
+		parts.push(arrows ? `»${formatTokens(tokens.cacheWrite)}` : `written ${formatTokens(tokens.cacheWrite)}`);
 	return parts.join(" ");
 }
 

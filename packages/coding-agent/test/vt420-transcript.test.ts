@@ -6,6 +6,7 @@ import { charsetDesignations, SESSION_MODES } from "@mrq/vt420/sequences.js";
 import { linesText, Vt420Emulator } from "@mrq/vt420-emu/emulator.js";
 import { describe, expect, it } from "vitest";
 import { type RenderContext, type ToolState, TranscriptBlock } from "../src/experimental/vt420/transcript.ts";
+import { tokenCounts } from "../src/experimental/vt420/widgets.ts";
 
 const WIDTH = 40;
 const THINKING =
@@ -185,6 +186,16 @@ describe("vt420 transcript thinking", () => {
 		const shifted = send(true);
 		expect(shifted).toBeLessThan(160);
 		expect(shifted * 1.15).toBeLessThan(send(false));
+	});
+});
+
+describe("vt420 token counts", () => {
+	it("marks cached tokens read back with « and written with », in words without DEC Technical", () => {
+		const tokens = { input: 12_000, output: 1200, cacheRead: 40_000, cacheWrite: 3400 };
+		expect(tokenCounts(charset, tokens)).toBe("↑12k ↓1.2k «40k »3.4k");
+		expect(tokenCounts(charset, { ...tokens, cacheWrite: 0 })).toBe("↑12k ↓1.2k «40k");
+		const plain = new Charset({ technical: false, supplemental: "dec", eightBit: false });
+		expect(tokenCounts(plain, tokens)).toBe("in 12k out 1.2k cache 40k written 3.4k");
 	});
 });
 

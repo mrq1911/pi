@@ -52,14 +52,15 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
 - **Special Graphics everywhere**: π prompt, boxes and tables in line drawing, ◆ bullets, ▒ gauges, a bouncing
   ⎺⎻─⎼⎽ scan-line spinner, scan-line sparklines, control pictures (␍ ␌ ␋) for stray controls in tool output, and ␤
   marking typed newlines in the editor.
-- **DEC Technical**: ↑ ↓ token counters, ≃ live speed estimates, √ and × tool results, ∴ thinking, Δ edits, ↑ reads,
+- **DEC Technical**: ↑ ↓ token counters (with « » from the supplemental set for tokens read from and written to the
+  cache), ≃ live speed estimates, √ and × tool results, ∴ thinking, Δ edits, ↑ reads,
   Greek and mathematics from model output, and multi-row Σ, ∫, √, brackets and braces from the composite pieces
   (`/charset`).
 - **Unicode transliteration**: everything else maps to the nearest glyph (heavy and rounded box drawing, typographic
   quotes, accents stripped where the supplemental set lacks them) or is dropped (emoji). Nothing from a model or tool
   can emit a control sequence.
 - **Line attributes**: DECDHL for the banner and level-1 headings, DECDWL for level-2 headings.
-- **Host-writable status line** (DECSSDT/DECSASD) for the footer, right-aligned under the prompt: ↑↓ tokens,
+- **Host-writable status line** (DECSSDT/DECSASD) for the footer, right-aligned under the prompt: ↑↓ tokens and «» cached ones,
   generation speed in tok/s, ∴ thinking level, ▒ context used/max and the working directory (its last component when
   long). The model appears in the banner and in `/session`.
 - **Rolling thinking**: collapsed thinking fills two rows as tokens arrive, and each time the lower one is full the
