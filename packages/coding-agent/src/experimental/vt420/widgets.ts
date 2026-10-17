@@ -293,20 +293,19 @@ export interface StatsInfo {
 	perTurnOutput: number[];
 }
 
-/** "↑12k ↓1.2k «40k »3k", or words where the terminal has no arrows. */
+/** "↑52k »77% ↓1.2k": the whole prompt, how much of it came from the cache, the output; words without arrows. */
 export function tokenCounts(
 	charset: Charset,
 	tokens: { input: number; output: number; cacheRead: number; cacheWrite?: number },
 ): string {
-	const arrows = ["↑", "↓", "«", "»"].every((char) => charset.has(char));
-	const parts = [
-		arrows ? `↑${formatTokens(tokens.input)}` : `in ${formatTokens(tokens.input)}`,
-		arrows ? `↓${formatTokens(tokens.output)}` : `out ${formatTokens(tokens.output)}`,
-	];
-	if (tokens.cacheRead)
-		parts.push(arrows ? `«${formatTokens(tokens.cacheRead)}` : `cache ${formatTokens(tokens.cacheRead)}`);
-	if (tokens.cacheWrite)
-		parts.push(arrows ? `»${formatTokens(tokens.cacheWrite)}` : `written ${formatTokens(tokens.cacheWrite)}`);
+	const arrows = ["↑", "↓", "»"].every((char) => charset.has(char));
+	const prompt = tokens.input + tokens.cacheRead + (tokens.cacheWrite ?? 0);
+	const parts = [arrows ? `↑${formatTokens(prompt)}` : `in ${formatTokens(prompt)}`];
+	if (tokens.cacheRead) {
+		const cached = Math.floor((tokens.cacheRead / prompt) * 100);
+		parts.push(arrows ? `»${cached}%` : `${cached}% cached`);
+	}
+	parts.push(arrows ? `↓${formatTokens(tokens.output)}` : `out ${formatTokens(tokens.output)}`);
 	return parts.join(" ");
 }
 

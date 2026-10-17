@@ -190,12 +190,12 @@ describe("vt420 transcript thinking", () => {
 });
 
 describe("vt420 token counts", () => {
-	it("marks cached tokens read back with « and written with », in words without DEC Technical", () => {
-		const tokens = { input: 12_000, output: 1200, cacheRead: 40_000, cacheWrite: 3400 };
-		expect(tokenCounts(charset, tokens)).toBe("↑12k ↓1.2k «40k »3.4k");
-		expect(tokenCounts(charset, { ...tokens, cacheWrite: 0 })).toBe("↑12k ↓1.2k «40k");
+	it("counts the whole prompt and how much of it the cache served, in words without DEC Technical", () => {
+		const tokens = { input: 9000, output: 1200, cacheRead: 40_000, cacheWrite: 3000 };
+		expect(tokenCounts(charset, tokens)).toBe("↑52k »76% ↓1.2k");
+		expect(tokenCounts(charset, { ...tokens, cacheRead: 0 })).toBe("↑12k ↓1.2k");
 		const plain = new Charset({ technical: false, supplemental: "dec", eightBit: false });
-		expect(tokenCounts(plain, tokens)).toBe("in 12k out 1.2k cache 40k written 3.4k");
+		expect(tokenCounts(plain, tokens)).toBe("in 52k 76% cached out 1.2k");
 	});
 });
 
