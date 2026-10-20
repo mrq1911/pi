@@ -333,6 +333,7 @@ export class Vt420App {
 	private mode: Mode = { kind: "normal" };
 	private follow = true;
 	private scrollTop = 0;
+	private scrolling = false;
 	private regionHeight = 1;
 	private transcriptLength = 0;
 	private showThinking = false;
@@ -969,7 +970,10 @@ export class Vt420App {
 			["app.scroll.pageDown", () => this.scrollBy(page)],
 			["app.scroll.top", () => this.scrollBy(-this.transcriptLength)],
 			["app.scroll.bottom", () => this.scrollToEnd()],
+			["app.scroll.mode", () => this.toggleScrolling()],
 		];
+		if (this.scrolling)
+			handlers.unshift(["editor.up", () => this.scrollBy(-1)], ["editor.down", () => this.scrollBy(1)]);
 		const handler = handlers.find(([action]) => this.keymap.matches(key, action));
 		if (handler) handler[1]();
 		else this.editKey(this.editor, key, true);
@@ -983,6 +987,12 @@ export class Vt420App {
 	private toggleTools(): void {
 		this.expandTools = !this.expandTools;
 		this.flash(this.expandTools ? "Expanded tool calls" : "Collapsed tool calls");
+	}
+
+	private toggleScrolling(): void {
+		this.scrolling = !this.scrolling;
+		if (!this.scrolling) this.scrollToEnd();
+		this.flash(this.scrolling ? "Up and Down scroll the transcript" : "Up and Down move in the input");
 	}
 
 	private scrollToEnd(): void {
@@ -3016,14 +3026,18 @@ export class Vt420App {
 		const right: number[] = [];
 		if (this.mode.kind === "normal") {
 			const hidden = Math.max(0, this.transcriptLength - this.regionHeight - this.scrollTop);
+			const parts = this.scrolling ? ["Scrolling"] : [];
 			if (!this.follow && hidden > 0) {
-				const more = charset.has("↓") ? `↓ ${hidden} more` : `${hidden} more below`;
-				right.push(...charset.cells(` ${more} · ${this.keymap.label("app.scroll.bottom")} `));
+				parts.push(charset.has("↓") ? `↓ ${hidden} more` : `${hidden} more below`);
+				parts.push(this.keymap.label("app.scroll.bottom"));
 			} else if (this.queued > 0) {
-				right.push(...charset.cells(` ${this.queued} queued `));
+				parts.push(`${this.queued} queued`);
+			} else if (this.scrolling) {
+				parts.push(`${this.keymap.label("app.scroll.mode")} off`);
 			} else if (!status) {
-				right.push(...charset.cells(` ${this.keymap.label("app.help")} keys `));
+				parts.push(`${this.keymap.label("app.help")} keys`);
 			}
+			if (parts.length > 0) right.push(...charset.cells(` ${parts.join(" · ")} `));
 		}
 		right.push(line);
 		const room = Math.max(0, width - right.length);

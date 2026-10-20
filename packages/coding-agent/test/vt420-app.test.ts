@@ -297,6 +297,41 @@ describe("vt420 app", () => {
 		await app.done;
 	});
 
+	it("scrolls the transcript a line with the arrows while F19 has them, and goes back to the live view after", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		const answer = Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join("\n\n");
+		harness.setResponses([fauxAssistantMessage(answer)]);
+		await harness.session.prompt("count");
+		const app = await start(harness);
+		const rows = (): string[] => app.emulator.screen();
+		const editor = (): string | undefined => rows().find((row) => row.startsWith("π"));
+		const separator = (): string => rows().find((row) => row.startsWith("─"))!;
+		const live = rows();
+		await app.key("f19");
+		expect(separator()).toMatch(/ Scrolling · F19 off ─$/);
+		await app.key("up");
+		await app.key("up");
+		expect(editor()).toBe("π");
+		expect(separator()).toMatch(/ Scrolling · ↓ 2 more · Select ─$/);
+		expect(rows()[2]).toBe(live[0]);
+		await app.key("down");
+		expect(separator()).toMatch(/ Scrolling · ↓ 1 more · Select ─$/);
+		await app.key("f19");
+		expect(separator()).toContain("Up and Down move in the input");
+		const transcript = (screen: string[]): string[] =>
+			screen.slice(
+				0,
+				screen.findIndex((row) => row.startsWith("─")),
+			);
+		expect(transcript(rows())).toEqual(transcript(live));
+		await app.key("up");
+		expect(editor()).toBe("π count");
+		await app.key("ctrl+c");
+		await app.key("ctrl+d");
+		await app.done;
+	});
+
 	it("quits on /q as on /quit", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);

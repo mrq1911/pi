@@ -59,8 +59,8 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
   quotes, accents stripped where the supplemental set lacks them) or is dropped (emoji). Nothing from a model or tool
   can emit a control sequence.
 - **Line attributes**: DECDHL for the banner and level-1 headings, DECDWL for level-2 headings.
-- **Host-writable status line** (DECSSDT/DECSASD) for the footer, right-aligned under the prompt: ↑↓ tokens, with how much of the prompt the cache served
-  (`↑52k »76% ↓1.2k`),
+- **Host-writable status line** (DECSSDT/DECSASD) for the footer, right-aligned under the prompt: ↑↓ tokens the model took in fresh and gave out, and how much
+  of the prompt the cache served (`↑12k ↓1.2k »76%`),
   generation speed in tok/s, ∴ thinking level, ▒ context used/max and the working directory (its last component when
   long). The model appears in the banner and in `/session`.
 - **Rolling thinking**: collapsed thinking fills two rows as tokens arrive, and each time the lower one is full the
@@ -138,6 +138,7 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
 | F20 | Matrix rain at once, whatever the screen saver is set to, on a VT400-class terminal; any key ends it |
 | PF1 / PF2 / PF3 / PF4 | thinking level / model / show thinking / expand tool calls |
 | Prev Screen, Next Screen, Find | page the transcript, jump to the top |
+| F19 (Shift+F7 elsewhere) | Up and Down scroll the transcript a line until F19 again, which goes back to the live view |
 | F12 BS, F13 LF | start of line, delete word (as on VMS) |
 
 Emacs control keys work in the editor. xterm's F13 to F20 (Shift with F1 to F8), which is how vt420-term passes

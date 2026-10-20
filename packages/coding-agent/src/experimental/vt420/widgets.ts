@@ -141,6 +141,7 @@ const HELP_KEYS: HelpEntry[] = [
 	{ action: "app.scroll.pageDown", label: "page forward" },
 	{ action: "app.scroll.top", label: "top of transcript" },
 	{ action: "app.scroll.bottom", label: "live view" },
+	{ action: "app.scroll.mode", label: "arrows scroll the transcript" },
 	{ action: "app.resume", label: "resume a session" },
 	{ action: "app.resume.empty", label: "resume a session when input is empty" },
 	{ action: "app.menu", label: "command menu" },
@@ -293,19 +294,21 @@ export interface StatsInfo {
 	perTurnOutput: number[];
 }
 
-/** "↑52k »77% ↓1.2k": the whole prompt, how much of it came from the cache, the output; words without arrows. */
+/** "↑12k ↓1.2k »76%": tokens the model took in fresh, gave out, and the share of the prompt the cache served. */
 export function tokenCounts(
 	charset: Charset,
 	tokens: { input: number; output: number; cacheRead: number; cacheWrite?: number },
 ): string {
 	const arrows = ["↑", "↓", "»"].every((char) => charset.has(char));
-	const prompt = tokens.input + tokens.cacheRead + (tokens.cacheWrite ?? 0);
-	const parts = [arrows ? `↑${formatTokens(prompt)}` : `in ${formatTokens(prompt)}`];
+	const fresh = tokens.input + (tokens.cacheWrite ?? 0);
+	const parts = [
+		arrows ? `↑${formatTokens(fresh)}` : `in ${formatTokens(fresh)}`,
+		arrows ? `↓${formatTokens(tokens.output)}` : `out ${formatTokens(tokens.output)}`,
+	];
 	if (tokens.cacheRead) {
-		const cached = Math.floor((tokens.cacheRead / prompt) * 100);
+		const cached = Math.floor((tokens.cacheRead / (fresh + tokens.cacheRead)) * 100);
 		parts.push(arrows ? `»${cached}%` : `${cached}% cached`);
 	}
-	parts.push(arrows ? `↓${formatTokens(tokens.output)}` : `out ${formatTokens(tokens.output)}`);
 	return parts.join(" ");
 }
 

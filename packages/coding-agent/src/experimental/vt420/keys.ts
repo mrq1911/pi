@@ -50,6 +50,7 @@ export const VT420_KEYBINDINGS = {
 	"app.scroll.pageDown": { keys: ["next"], description: "Page down" },
 	"app.scroll.top": { keys: ["find"], description: "Top of transcript" },
 	"app.scroll.bottom": { keys: ["select"], description: "Bottom of transcript" },
+	"app.scroll.mode": { keys: ["f19"], description: "Arrows scroll the transcript" },
 	"select.up": { keys: ["up", "ctrl+p"], description: "Previous item" },
 	"select.down": { keys: ["down", "ctrl+n"], description: "Next item" },
 	"select.pageUp": { keys: ["prev"], description: "Previous page" },
