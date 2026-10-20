@@ -41,6 +41,8 @@ interface Running {
 	line: { requests: number; answers: number; mostAhead: number; mostBytes: number };
 	/** Entries the app asked the runtime to fork from. */
 	forks: string[];
+	/** Whether the app has asked for the mouse wheel. */
+	wheel: () => boolean;
 	done: Promise<void>;
 	input(event: InputEvent): void;
 	key(key: string): Promise<void>;
@@ -125,9 +127,13 @@ async function start(
 	);
 	const output: string[] = [];
 	let listener: ((event: InputEvent) => void) | undefined;
+	let wheel = false;
 	const io: Vt420Io = {
 		caps: capabilities,
 		backlogMs: 0,
+		setWheel: (on) => {
+			wheel = on;
+		},
 		write: (bytes) => {
 			output.push(bytes);
 			const requests = bytes.match(/\x1b\[5n|\x1b\[c/g)?.length ?? 0;
@@ -190,6 +196,7 @@ async function start(
 		output,
 		line: counts,
 		forks,
+		wheel: () => wheel,
 		done,
 		input: (event) => listener?.(event),
 		key: (key) => send({ type: "key", key }),
@@ -309,6 +316,7 @@ describe("vt420 app", () => {
 		const separator = (): string => rows().find((row) => row.startsWith("─"))!;
 		const live = rows();
 		await app.key("f19");
+		expect(app.wheel()).toBe(true);
 		expect(separator()).toMatch(/ Scrolling · F19 off ─$/);
 		await app.key("up");
 		await app.key("up");
@@ -317,7 +325,14 @@ describe("vt420 app", () => {
 		expect(rows()[2]).toBe(live[0]);
 		await app.key("down");
 		expect(separator()).toMatch(/ Scrolling · ↓ 1 more · Select ─$/);
+		// a notch of the wheel is three lines
+		await app.key("wheelup");
+		expect(separator()).toMatch(/ Scrolling · ↓ 4 more · Select ─$/);
+		await app.key("wheeldown");
+		await app.key("wheeldown");
+		expect(separator()).toMatch(/ Scrolling · F19 off ─$/);
 		await app.key("f19");
+		expect(app.wheel()).toBe(false);
 		expect(separator()).toContain("Up and Down move in the input");
 		const transcript = (screen: string[]): string[] =>
 			screen.slice(
@@ -950,6 +965,70 @@ describe("vt420 app", () => {
 		expect(rows[call]).toMatch(/^\$ cd src && +√$/);
 		expect(rows[call + 1]?.trimEnd()).toBe("    ls -la");
 		expect(rows[call + 2]?.trimEnd()).toBe("  │ line one");
+		await app.key("ctrl+d");
+		await app.done;
+	});
+
+	it("traces on the separator what the model is at: a sine thinking, its voice writing, a square wave for a tool", async () => {
+		const slow: AgentTool = {
+			name: "slow",
+			label: "slow",
+			description: "Take a while",
+			parameters: Type.Object({}),
+			execute: async () => {
+				await settle(400);
+				return { content: [{ type: "text", text: "done" }], details: {} };
+			},
+		};
+		const words = (count: number): string => Array.from({ length: count }, (_, i) => `word${i}`).join(" ");
+		const reply = [
+			fauxAssistantMessage([fauxThinking(words(30)), fauxText(words(30)), fauxToolCall("slow", {})], {
+				stopReason: "toolUse",
+			}),
+			fauxAssistantMessage("ok"),
+		];
+		for (const softFont of [false, true]) {
+			const harness = await createHarness({ tools: [slow], tokensPerSecond: 150 });
+			harnesses.push(harness);
+			harness.setResponses(reply);
+			const app = await start(harness, { softFont });
+			const seen = async (pattern: RegExp): Promise<void> => {
+				for (let tries = 0; tries < 150; tries++) {
+					if (app.emulator.screen().some((row) => pattern.test(row))) return;
+					await settle(10);
+				}
+				throw new Error(`no separator row like ${pattern}`);
+			};
+			// the soft font's glyphs, from 0x21: four of the sine, sixteen of the voice, four of the square wave
+			const soft = (first: number, count: number): string =>
+				`[${String.fromCodePoint(0xf0000 + first)}-${String.fromCodePoint(0xf0000 + first + count - 1)}]{4}`;
+			const sine = softFont ? soft(0x21, 4) : "[⎺⎻─⎼⎽]{4}";
+			const voice = softFont ? soft(0x25, 16) : "[⎺⎻─⎼⎽]{4}";
+			const square = softFont ? soft(0x35, 4) : "[⎺│⎽]{4}";
+			if (softFont) expect(app.output.join("")).toContain("\x1bP1;1;1;10;0;2;16;0{ @");
+			else expect(app.output.join("")).not.toContain("\x1bP");
+			await app.type("go");
+			await app.key("return");
+			await seen(new RegExp(`^─◆ Thinking ${sine} `, "u"));
+			await seen(new RegExp(`^─◆ Writing ${voice} `, "u"));
+			await seen(new RegExp(`^─◆ Running slow ${square} `, "u"));
+			await waitForIdle(harness);
+			await app.key("ctrl+d");
+			await app.done;
+		}
+	});
+
+	it("sends the scope font to a DEC terminal in answered pieces like a frame's", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		const app = await start(harness, { deviceStatus: true, softFont: true, bytesPerSecond: 3840 }, undefined, {
+			answerDelayMs: 30,
+		});
+		await settle(1500);
+		const pieces = app.output.filter((piece) => piece.startsWith("\x1bP"));
+		expect(pieces.length).toBe(12);
+		expect(pieces.every((piece) => piece.length <= 100 && piece.endsWith("\x1b\\\x1b[5n"))).toBe(true);
+		expect(app.line.mostBytes).toBeLessThanOrEqual(200);
 		await app.key("ctrl+d");
 		await app.done;
 	});

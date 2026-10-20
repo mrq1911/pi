@@ -49,9 +49,15 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
 
 - **Character sets**: G0 ASCII, G1 DEC Special Graphics, G2 DEC Technical, G3 DEC Supplemental or ISO Latin-1, reached
   with SO/SI, LS2/LS3 and SS2/SS3. Output is 7-bit clean; `--8bit` puts G3 in GR instead.
-- **Special Graphics everywhere**: π prompt, boxes and tables in line drawing, ◆ bullets, ▒ gauges, a bouncing
-  ⎺⎻─⎼⎽ scan-line spinner, scan-line sparklines, control pictures (␍ ␌ ␋) for stray controls in tool output, and ␤
+- **Special Graphics everywhere**: π prompt, boxes and tables in line drawing, ◆ bullets and a · ◆ heartbeat on a
+  running tool, ▒ gauges, scan-line sparklines, control pictures (␍ ␌ ␋) for stray controls in tool output, and ␤
   marking typed newlines in the editor.
+- **Soft font** (DECDLD): while the model works, the separator row shows a scope trace of four cells that says what
+  goes on, a sine wave while it thinks, its voice while it writes, a square wave while a tool runs, travelling half a
+  cell a frame (`◆ Thinking ∿∿ 12s`, `◆ Writing`, `◆ Running bash`). The glyphs, 10 by 16 dots each, go out at the
+  start in pieces paced like frames, and again after `/redraw`; drawing one borrows G2 from DEC Technical for the
+  frame. A terminal without soft fonts (DA1 without 7), an emulator, or a screen other than 80 by 24 gets the same
+  traces in ⎺⎻─⎼⎽ scan lines, a cell a frame.
 - **DEC Technical**: ↑ ↓ token counters, ≃ live speed estimates, √ and × tool results, ∴ thinking, Δ edits, ↑ reads,
   Greek and mathematics from model output, and multi-row Σ, ∫, √, brackets and braces from the composite pieces
   (`/charset`).
@@ -138,7 +144,7 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
 | F20 | Matrix rain at once, whatever the screen saver is set to, on a VT400-class terminal; any key ends it |
 | PF1 / PF2 / PF3 / PF4 | thinking level / model / show thinking / expand tool calls |
 | Prev Screen, Next Screen, Find | page the transcript, jump to the top |
-| F19 (Shift+F7 elsewhere) | Up and Down scroll the transcript a line until F19 again, which goes back to the live view |
+| F19 (Shift+F7 elsewhere) | Up and Down scroll the transcript a line, and an emulator's mouse wheel three, until F19 again, which goes back to the live view; selecting text meanwhile takes Shift on most emulators |
 | F12 BS, F13 LF | start of line, delete word (as on VMS) |
 
 Emacs control keys work in the editor. xterm's F13 to F20 (Shift with F1 to F8), which is how vt420-term passes
@@ -219,5 +225,5 @@ VT420 Set-Up, saved:
 
 ## Not included
 
-Themes, images, mouse, and extension widgets, headers, footers and custom components. Use `pi` for those; the
+Themes, images, the mouse beyond the wheel in scroll mode, and extension widgets, headers, footers and custom components. Use `pi` for those; the
 sessions are shared.

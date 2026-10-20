@@ -82,11 +82,11 @@ import {
 	saverFrame,
 	saverPlace,
 } from "./saver.ts";
+import { type Phase, SCOPE_FONT, traceCells } from "./scope.ts";
 import { SpeedMeter } from "./speed.ts";
 import {
 	type BashState,
 	type RenderContext,
-	SPINNER,
 	type ThinkingTimes,
 	type ToolState,
 	Transcript,
@@ -125,6 +125,8 @@ export interface Vt420Io {
 	onResponse?(handler: ((response: TerminalResponse) => void) | undefined): void;
 	/** Resend terminal setup, for a redraw after the terminal was reset. */
 	reinitialize?(): void;
+	/** Have an emulator send its mouse wheel as wheelup and wheeldown keys, or stop. */
+	setWheel?(on: boolean): void;
 }
 
 export interface Vt420AppOptions {
@@ -334,6 +336,8 @@ export class Vt420App {
 	private follow = true;
 	private scrollTop = 0;
 	private scrolling = false;
+	/** The scope font went to a terminal that takes soft fonts. */
+	private softTraces = false;
 	private regionHeight = 1;
 	private transcriptLength = 0;
 	private showThinking = false;
@@ -481,6 +485,7 @@ export class Vt420App {
 			this.renderer.resize(this.io.caps.rows, this.io.caps.columns);
 			this.requestRender();
 		});
+		if (caps.softFont && !caps.unicode && caps.columns === 80 && caps.rows === 24) this.loadScopeFont();
 		this.renderNow();
 		this.armSaver();
 		if (initial.resume) void this.showSessions();
@@ -971,6 +976,8 @@ export class Vt420App {
 			["app.scroll.top", () => this.scrollBy(-this.transcriptLength)],
 			["app.scroll.bottom", () => this.scrollToEnd()],
 			["app.scroll.mode", () => this.toggleScrolling()],
+			["app.scroll.wheelUp", () => this.scrollBy(-3)],
+			["app.scroll.wheelDown", () => this.scrollBy(3)],
 		];
 		if (this.scrolling)
 			handlers.unshift(["editor.up", () => this.scrollBy(-1)], ["editor.down", () => this.scrollBy(1)]);
@@ -991,8 +998,9 @@ export class Vt420App {
 
 	private toggleScrolling(): void {
 		this.scrolling = !this.scrolling;
+		this.io.setWheel?.(this.scrolling);
 		if (!this.scrolling) this.scrollToEnd();
-		this.flash(this.scrolling ? "Up and Down scroll the transcript" : "Up and Down move in the input");
+		this.flash(this.scrolling ? "Up, Down and the wheel scroll the transcript" : "Up and Down move in the input");
 	}
 
 	private scrollToEnd(): void {
@@ -2560,6 +2568,8 @@ export class Vt420App {
 
 	private redraw(): void {
 		this.io.reinitialize?.();
+		// a reset from Set-Up takes the soft font with it
+		if (this.softTraces) this.loadScopeFont();
 		this.renderer.forgetState();
 		this.renderer.invalidate();
 		this.requestRender();
@@ -2992,37 +3002,74 @@ export class Vt420App {
 		return lines.slice(0, height);
 	}
 
-	private statusText(): string | undefined {
-		const interrupt = this.keymap.label("app.interrupt");
-		const spinner = SPINNER[this.tick % SPINNER.length]!;
+	/** What the separator row says, a trace among its words while something works. */
+	private statusCells(): number[] | undefined {
+		const charset = this.charset;
+		const stop = ` · ${this.keymap.label("app.interrupt")} stop`;
+		const traced = (before: string, phase: Phase, after = ""): number[] => [
+			...charset.cells(`${before} `),
+			...traceCells(phase, this.tick, charset, this.softTracesHere()),
+			...charset.cells(`${after}${stop}`),
+		];
 		const now = Date.now();
-		if (this.mode.kind === "prompt") return this.mode.message.split("\n")[0];
-		if (this.flashText && now <= this.flashText.until) return this.flashText.text;
+		if (this.mode.kind === "prompt") return charset.cells(this.mode.message.split("\n")[0] ?? "");
+		if (this.flashText && now <= this.flashText.until) return charset.cells(this.flashText.text);
 		if (this.retry) {
 			const seconds = Math.max(0, Math.ceil((this.retry.until - now) / 1000));
-			return `Retry ${this.retry.attempt}/${this.retry.max} in ${formatDuration(seconds)} · ${interrupt} stop`;
+			return charset.cells(`Retry ${this.retry.attempt}/${this.retry.max} in ${formatDuration(seconds)}${stop}`);
 		}
 		if (this.compacting) {
 			const frame = this.tick % COMPACTING.length;
-			return `Compacting ${this.charset.pick(COMPACTING[frame]!, COMPACTING_ASCII[frame]!)} · ${interrupt} stop`;
+			return charset.cells(`Compacting ${charset.pick(COMPACTING[frame]!, COMPACTING_ASCII[frame]!)}${stop}`);
 		}
-		if (this.summarizing) return `Summarizing branch ${spinner} · ${interrupt} stop`;
-		if (this.activity) return `${this.activity.text} ${spinner} · ${interrupt} stop`;
+		if (this.summarizing) return traced("Summarizing branch", "thinking");
+		if (this.activity) return traced(this.activity.text, "tool");
 		if (this.working) {
 			const seconds = Math.floor((now - this.workingSince) / 1000);
-			const word = this.workingWord ?? "Working";
-			return `${word} ${spinner}${seconds > 0 ? ` ${formatDuration(seconds)}` : ""} · ${interrupt} stop`;
+			const { phase, word } = this.phase();
+			return traced(this.workingWord ?? word, phase, seconds > 0 ? ` ${formatDuration(seconds)}` : "");
 		}
-		if (this.bashRunning) return `Running ${spinner} · ${interrupt} stop`;
-		return this.extensionStatus;
+		if (this.bashRunning) return traced("Running", "tool");
+		return this.extensionStatus === undefined ? undefined : charset.cells(this.extensionStatus);
+	}
+
+	/** What the model is at: a tool it called running, else its thinking or its writing, else waiting on it. */
+	private phase(): { phase: Phase; word: string } {
+		let running: ToolState | undefined;
+		for (const block of this.tools.values()) {
+			if (block.content.kind === "tool" && block.content.tool.status === "running") running = block.content.tool;
+		}
+		if (running) return { phase: "tool", word: `Running ${running.name}` };
+		const content = this.streaming?.content;
+		const last = content?.kind === "assistant" ? content.message.content.at(-1) : undefined;
+		if (last?.type === "thinking") return { phase: "thinking", word: "Thinking" };
+		if (last) return { phase: "writing", word: "Writing" };
+		return { phase: "thinking", word: "Working" };
+	}
+
+	/** The scope font is loaded, and the screen is the size it was drawn for. */
+	private softTracesHere(): boolean {
+		const caps = this.io.caps;
+		return this.softTraces && caps.columns === 80 && caps.rows === 24;
+	}
+
+	/** Load the scope font in pieces the pacing sends like a frame's, ahead of the next frame. */
+	private loadScopeFont(): void {
+		this.softTraces = true;
+		if (!this.syncRequest) {
+			this.io.write(SCOPE_FONT.join(""));
+			return;
+		}
+		this.outbox.push(...SCOPE_FONT);
+		this.pump();
 	}
 
 	private separator(width: number): number[] {
 		const charset = this.charset;
 		const line = charset.cell("─");
-		const status = this.statusText();
+		const status = this.statusCells();
 		const left: number[] = [line];
-		if (status) left.push(charset.cell("◆"), ...charset.cells(` ${status} `));
+		if (status && status.length > 0) left.push(charset.cell("◆"), charset.cell(" "), ...status, charset.cell(" "));
 		const right: number[] = [];
 		if (this.mode.kind === "normal") {
 			const hidden = Math.max(0, this.transcriptLength - this.regionHeight - this.scrollTop);
@@ -3034,7 +3081,7 @@ export class Vt420App {
 				parts.push(`${this.queued} queued`);
 			} else if (this.scrolling) {
 				parts.push(`${this.keymap.label("app.scroll.mode")} off`);
-			} else if (!status) {
+			} else if (!status?.length) {
 				parts.push(`${this.keymap.label("app.help")} keys`);
 			}
 			if (parts.length > 0) right.push(...charset.cells(` ${parts.join(" · ")} `));

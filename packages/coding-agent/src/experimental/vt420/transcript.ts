@@ -18,7 +18,8 @@ import { formatDuration, formatSpan } from "./format.ts";
 import { renderMarkdown } from "./markdown.ts";
 import { formatTokens } from "./widgets.ts";
 
-export const SPINNER = ["⎺", "⎻", "─", "⎼", "⎽", "⎼", "─", "⎻"];
+/** A running tool's heartbeat: a dot that swells to a diamond, and a rest. */
+const HEARTBEAT = ["·", "◆", "·", " ", " "];
 
 export interface RenderContext {
 	width: number;
@@ -440,7 +441,7 @@ function finishedStatus(mark: string, label: string, durationMs: number | undefi
 }
 
 function spinnerStatus(context: RenderContext, startedAt: number | undefined): string {
-	const frame = SPINNER[context.tick % SPINNER.length]!;
+	const frame = HEARTBEAT[context.tick % HEARTBEAT.length]!;
 	const seconds = startedAt === undefined ? 0 : Math.floor((context.now - startedAt) / 1000);
 	return seconds >= 2 ? `${formatDuration(seconds)} ${frame}` : frame;
 }

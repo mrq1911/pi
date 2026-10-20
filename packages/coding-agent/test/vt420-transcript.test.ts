@@ -295,7 +295,11 @@ describe("vt420 transcript tools", () => {
 			kind: "tool",
 			tool: { name: "bash", args: { command: "make" }, status: "running", output: "", startedAt: 0 },
 		});
-		expect(linesText(running.render({ ...context(), now: 65_000 }))[0]).toBe(`$ make${" ".repeat(26)}1m 05s ⎺`);
+		// a heartbeat: a dot swelling to a diamond, and a rest, the time keeping its place
+		const beats = [0, 1, 2, 3, 4].map((tick) => linesText(running.render({ ...context(), now: 65_000, tick }))[0]);
+		expect(beats).toEqual(
+			["·", "◆", "·", " ", " "].map((frame) => `$ make${" ".repeat(26)}1m 05s ${frame}`.trimEnd()),
+		);
 		expect(header({ status: "error", durationMs: 2500 })).toBe(`$ make${" ".repeat(30)}2s ×`);
 		const edit = { name: "edit", args: { path: "/work/a.ts" }, details: { diff: "-old\n+new" }, durationMs: 3000 };
 		expect(header(edit)).toBe(`Δ a.ts${" ".repeat(22)}+1 -1 · 3s √`);
