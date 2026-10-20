@@ -59,8 +59,8 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
   quotes, accents stripped where the supplemental set lacks them) or is dropped (emoji). Nothing from a model or tool
   can emit a control sequence.
 - **Line attributes**: DECDHL for the banner and level-1 headings, DECDWL for level-2 headings.
-- **Host-writable status line** (DECSSDT/DECSASD) for the footer, right-aligned under the prompt: ↑↓ tokens the model took in fresh and gave out, and how much
-  of the prompt the cache served (`↑12k ↓1.2k »76%`),
+- **Host-writable status line** (DECSSDT/DECSASD) for the footer, right-aligned under the prompt: ↑↓ tokens the model took in fresh and gave out, and between
+  them how much of the prompt the cache served (`↑12k »76% ↓1.2k`),
   generation speed in tok/s, ∴ thinking level, ▒ context used/max and the working directory (its last component when
   long). The model appears in the banner and in `/session`.
 - **Rolling thinking**: collapsed thinking fills two rows as tokens arrive, and each time the lower one is full the

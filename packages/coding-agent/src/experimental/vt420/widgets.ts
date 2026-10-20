@@ -294,21 +294,19 @@ export interface StatsInfo {
 	perTurnOutput: number[];
 }
 
-/** "↑12k ↓1.2k »76%": tokens the model took in fresh, gave out, and the share of the prompt the cache served. */
+/** "↑12k »76% ↓1.2k": tokens the model took in fresh, the share of the prompt the cache served, tokens out. */
 export function tokenCounts(
 	charset: Charset,
 	tokens: { input: number; output: number; cacheRead: number; cacheWrite?: number },
 ): string {
 	const arrows = ["↑", "↓", "»"].every((char) => charset.has(char));
 	const fresh = tokens.input + (tokens.cacheWrite ?? 0);
-	const parts = [
-		arrows ? `↑${formatTokens(fresh)}` : `in ${formatTokens(fresh)}`,
-		arrows ? `↓${formatTokens(tokens.output)}` : `out ${formatTokens(tokens.output)}`,
-	];
+	const parts = [arrows ? `↑${formatTokens(fresh)}` : `in ${formatTokens(fresh)}`];
 	if (tokens.cacheRead) {
 		const cached = Math.floor((tokens.cacheRead / (fresh + tokens.cacheRead)) * 100);
 		parts.push(arrows ? `»${cached}%` : `${cached}% cached`);
 	}
+	parts.push(arrows ? `↓${formatTokens(tokens.output)}` : `out ${formatTokens(tokens.output)}`);
 	return parts.join(" ");
 }
 
