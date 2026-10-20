@@ -3024,22 +3024,23 @@ export class Vt420App {
 		}
 		if (this.summarizing) return traced("Summarizing branch", "thinking");
 		if (this.activity) return traced(this.activity.text, "tool");
+		// the words take the same width, so the trace keeps its place as one follows another
+		const word = (text: string): string => text.padEnd("Thinking".length);
 		if (this.working) {
 			const seconds = Math.floor((now - this.workingSince) / 1000);
-			const { phase, word } = this.phase();
-			return traced(this.workingWord ?? word, phase, seconds > 0 ? ` ${formatDuration(seconds)}` : "");
+			const { phase, word: doing } = this.phase();
+			return traced(word(this.workingWord ?? doing), phase, seconds > 0 ? ` ${formatDuration(seconds)}` : "");
 		}
-		if (this.bashRunning) return traced("Running", "tool");
+		if (this.bashRunning) return traced(word("Running"), "tool");
 		return this.extensionStatus === undefined ? undefined : charset.cells(this.extensionStatus);
 	}
 
 	/** What the model is at: a tool it called running, else its thinking or its writing, else waiting on it. */
 	private phase(): { phase: Phase; word: string } {
-		let running: ToolState | undefined;
-		for (const block of this.tools.values()) {
-			if (block.content.kind === "tool" && block.content.tool.status === "running") running = block.content.tool;
-		}
-		if (running) return { phase: "tool", word: `Running ${running.name}` };
+		const running = [...this.tools.values()].some(
+			(block) => block.content.kind === "tool" && block.content.tool.status === "running",
+		);
+		if (running) return { phase: "tool", word: "Running" };
 		const content = this.streaming?.content;
 		const last = content?.kind === "assistant" ? content.message.content.at(-1) : undefined;
 		if (last?.type === "thinking") return { phase: "thinking", word: "Thinking" };

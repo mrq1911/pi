@@ -1009,9 +1009,10 @@ describe("vt420 app", () => {
 			else expect(app.output.join("")).not.toContain("\x1bP");
 			await app.type("go");
 			await app.key("return");
+			// in the same column whatever the word
 			await seen(new RegExp(`^─◆ Thinking ${sine} `, "u"));
-			await seen(new RegExp(`^─◆ Writing ${voice} `, "u"));
-			await seen(new RegExp(`^─◆ Running slow ${square} `, "u"));
+			await seen(new RegExp(`^─◆ Writing  ${voice} `, "u"));
+			await seen(new RegExp(`^─◆ Running  ${square} `, "u"));
 			await waitForIdle(harness);
 			await app.key("ctrl+d");
 			await app.done;
