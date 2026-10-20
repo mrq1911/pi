@@ -347,6 +347,32 @@ describe("vt420 app", () => {
 		await app.done;
 	});
 
+	it("takes the Returns of a paste for new lines, its last one too, and sends only on a Return typed after", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage("got it")]);
+		const app = await start(harness, {}, undefined, undefined, { pasteWindowMs: 30 });
+		// a paste comes in at line speed, as keys: text and Returns hard on each other's heels
+		for (const event of [
+			{ type: "text", text: "line one" },
+			{ type: "key", key: "return" },
+			{ type: "text", text: "line two" },
+			{ type: "key", key: "return" },
+		] as const) {
+			app.input(event);
+		}
+		await settle(100);
+		expect(harness.session.messages).toHaveLength(0);
+		expect(app.screen()).toContain("line two");
+		await app.key("return");
+		await settle(100);
+		await waitForIdle(harness);
+		const sent = harness.session.messages.find((message) => message.role === "user");
+		expect(sent && "content" in sent ? JSON.stringify(sent.content) : "").toContain("line one\\nline two");
+		await app.key("ctrl+d");
+		await app.done;
+	});
+
 	it("quits on /q as on /quit", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);

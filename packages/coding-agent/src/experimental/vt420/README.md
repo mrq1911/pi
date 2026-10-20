@@ -131,7 +131,7 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
 
 | Key | Action |
 | --- | --- |
-| Return | send; steer while working |
+| Return | send; steer while working; a pasted one, the last line's too, is a new line |
 | Do (F5 elsewhere) | queue a follow-up |
 | Ctrl+J | new line |
 | F6 Interrupt, F11 ESC | interrupt, close menus |

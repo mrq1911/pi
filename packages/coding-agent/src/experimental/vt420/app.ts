@@ -336,6 +336,8 @@ export class Vt420App {
 	private follow = true;
 	private scrollTop = 0;
 	private scrolling = false;
+	/** When text last came in, typed or pasted, to tell a paste's Returns from a typed one. */
+	private lastTextAt = 0;
 	/** The scope font went to a terminal that takes soft fonts. */
 	private softTraces = false;
 	private regionHeight = 1;
@@ -895,10 +897,20 @@ export class Vt420App {
 			if (pasted && this.mode.kind === "normal") this.editor.newline();
 			else this.dispatchKey("return");
 		}
-		// Pasted text arrives at line speed; allow a few character times between a Return and what follows.
+		// Pasted text arrives at line speed; allow a few character times between a Return and what is around it.
 		const bytesPerSecond = this.io.caps.bytesPerSecond;
 		const pasteWindow = this.options.pasteWindowMs ?? Math.max(25, bytesPerSecond ? 4000 / bytesPerSecond : 0);
+		const now = Date.now();
+		const afterText = now - this.lastTextAt < pasteWindow;
+		if (event.type === "text" || event.type === "paste") this.lastTextAt = now;
 		if (event.type === "key" && event.key === "return" && this.mode.kind === "normal" && pasteWindow > 0) {
+			// a Return hard on the heels of text is a paste's, its last line's too, never a send
+			if (afterText) {
+				this.lastTextAt = now;
+				this.editor.newline();
+				this.requestRender();
+				return;
+			}
 			this.pendingReturn = setTimeout(() => {
 				this.pendingReturn = undefined;
 				this.dispatchKey("return");
