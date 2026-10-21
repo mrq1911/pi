@@ -3047,7 +3047,7 @@ export class Vt420App {
 		return this.extensionStatus === undefined ? undefined : charset.cells(this.extensionStatus);
 	}
 
-	/** What the model is at: a tool it called running, else its thinking or its writing, else waiting on it. */
+	/** What the model is at: a tool it called running, its thinking, its writing, else reading what it was sent. */
 	private phase(): { phase: Phase; word: string } {
 		const running = [...this.tools.values()].some(
 			(block) => block.content.kind === "tool" && block.content.tool.status === "running",
@@ -3057,7 +3057,7 @@ export class Vt420App {
 		const last = content?.kind === "assistant" ? content.message.content.at(-1) : undefined;
 		if (last?.type === "thinking") return { phase: "thinking", word: "Thinking" };
 		if (last) return { phase: "writing", word: "Writing" };
-		return { phase: "thinking", word: "Working" };
+		return { phase: "reading", word: "Reading" };
 	}
 
 	/** The scope font is loaded, and the screen is the size it was drawn for. */

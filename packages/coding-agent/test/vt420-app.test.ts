@@ -1053,7 +1053,7 @@ describe("vt420 app", () => {
 		});
 		await settle(1500);
 		const pieces = app.output.filter((piece) => piece.startsWith("\x1bP"));
-		expect(pieces.length).toBe(12);
+		expect(pieces.length).toBe(20);
 		expect(pieces.every((piece) => piece.length <= 100 && piece.endsWith("\x1b\\\x1b[5n"))).toBe(true);
 		expect(app.line.mostBytes).toBeLessThanOrEqual(200);
 		await app.key("ctrl+d");

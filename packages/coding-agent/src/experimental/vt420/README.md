@@ -53,10 +53,11 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
   running tool, ▒ gauges, scan-line sparklines, control pictures (␍ ␌ ␋) for stray controls in tool output, and ␤
   marking typed newlines in the editor.
 - **Soft font** (DECDLD): while the model works, the separator row shows a scope trace of four cells that says what
-  goes on, a sine wave while it thinks, its voice while it writes, a square wave while a tool runs, travelling half a
-  cell a frame (`◆ Thinking ∿∿ 12s`, `◆ Writing`, `◆ Running`), in the same column whichever word is before it. The glyphs, 10 by 16 dots each, go out at the
-  start in pieces paced like frames, and again after `/redraw`; drawing one borrows G2 from DEC Technical for the
-  frame. A terminal without soft fonts (DA1 without 7), an emulator, or a screen other than 80 by 24 gets the same
+  goes on: a standing wave, swinging in place, while it reads what it was sent and nothing has come back yet, then,
+  travelling half a cell a frame, a sine wave while it thinks, its voice while it writes, a square wave while a tool
+  runs (`◆ Reading`, `◆ Thinking ∿∿ 12s`, `◆ Writing`, `◆ Running`), in the same column whichever word is before it.
+  The glyphs, 10 by 16 dots each, go out at the start in pieces paced like frames, and again after `/redraw`; drawing
+  one borrows G2 from DEC Technical for the frame. A terminal without soft fonts (DA1 without 7), an emulator, or a screen other than 80 by 24 gets the same
   traces in ⎺⎻─⎼⎽ scan lines, a cell a frame.
 - **DEC Technical**: ↑ ↓ token counters, ≃ live speed estimates, √ and × tool results, ∴ thinking, Δ edits, ↑ reads,
   Greek and mathematics from model output, and multi-row Σ, ∫, √, brackets and braces from the composite pieces

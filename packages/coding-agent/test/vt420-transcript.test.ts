@@ -5,6 +5,7 @@ import { type Frame, Renderer } from "@mrq/vt420/renderer.js";
 import { charsetDesignations, SESSION_MODES } from "@mrq/vt420/sequences.js";
 import { linesText, Vt420Emulator } from "@mrq/vt420-emu/emulator.js";
 import { describe, expect, it } from "vitest";
+import { traceCells } from "../src/experimental/vt420/scope.ts";
 import { type RenderContext, type ToolState, TranscriptBlock } from "../src/experimental/vt420/transcript.ts";
 import { tokenCounts } from "../src/experimental/vt420/widgets.ts";
 
@@ -186,6 +187,19 @@ describe("vt420 transcript thinking", () => {
 		const shifted = send(true);
 		expect(shifted).toBeLessThan(160);
 		expect(shifted * 1.15).toBeLessThan(send(false));
+	});
+});
+
+describe("vt420 scope traces", () => {
+	it("swings a standing wave in place while the model reads, where the others travel", () => {
+		const scan = (phase: Parameters<typeof traceCells>[0], tick: number): string =>
+			linesText([{ cells: traceCells(phase, tick, charset, false), attr: LINE_SINGLE }])[0]!;
+		expect([0, 1, 2, 3, 4].map((tick) => scan("reading", tick))).toEqual(["⎺⎽⎺⎽", "────", "⎽⎺⎽⎺", "────", "⎺⎽⎺⎽"]);
+		expect(scan("thinking", 1)).toBe(scan("thinking", 0).slice(1) + scan("thinking", 4)[0]);
+		// soft glyphs after the other traces' 24: a frame a tick, the same two glyphs across its cells
+		const soft = traceCells("reading", 3, charset, true).map((cell) => cell & 0x7f);
+		expect(soft).toEqual([0x39 + 6, 0x3a + 6, 0x39 + 6, 0x3a + 6]);
+		expect(traceCells("reading", 11, charset, true)).toEqual(traceCells("reading", 3, charset, true));
 	});
 });
 
