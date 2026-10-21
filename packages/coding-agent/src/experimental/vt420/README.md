@@ -139,6 +139,7 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
 | F8 Cancel, Ctrl+C | clear input; twice to exit |
 | F10 Exit, Ctrl+D | exit when the input is empty |
 | F7 Resume, Left on an empty input | pick a session |
+| Up on an empty input, with messages queued | the queued messages back in the input, to edit |
 | F9 Main Screen, Select | back to the live view |
 | F14 Additional Options | command menu |
 | Help | keys and commands |

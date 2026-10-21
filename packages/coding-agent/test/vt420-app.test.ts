@@ -373,6 +373,32 @@ describe("vt420 app", () => {
 		await app.done;
 	});
 
+	it("brings queued messages back into an empty input with Up, out of the queue", async () => {
+		const harness = await createHarness({ tokensPerSecond: 40 });
+		harnesses.push(harness);
+		const words = Array.from({ length: 120 }, (_, i) => `word${i}`).join(" ");
+		harness.setResponses([fauxAssistantMessage(words), fauxAssistantMessage("ok")]);
+		const app = await start(harness);
+		const editor = (): string | undefined => app.emulator.screen().find((row) => row.startsWith("π"));
+		await app.submit("go");
+		await app.submit("first change");
+		await app.submit("second change");
+		expect(harness.session.getSteeringMessages()).toHaveLength(2);
+		await app.key("up");
+		expect(harness.session.getSteeringMessages()).toHaveLength(0);
+		expect(editor()).toBe("π first change");
+		expect(app.screen()).toContain("second change");
+		// with nothing queued, Up is the last prompt again
+		await app.key("ctrl+c");
+		await app.key("up");
+		expect(editor()).toBe("π second change");
+		await app.key("ctrl+c");
+		await app.key("f6");
+		await waitForIdle(harness);
+		await app.key("ctrl+d");
+		await app.done;
+	});
+
 	it("quits on /q as on /quit", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);

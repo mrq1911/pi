@@ -144,6 +144,7 @@ const HELP_KEYS: HelpEntry[] = [
 	{ action: "app.scroll.mode", label: "arrows scroll the transcript" },
 	{ action: "app.resume", label: "resume a session" },
 	{ action: "app.resume.empty", label: "resume a session when input is empty" },
+	{ action: "app.queue.edit", label: "edit queued messages when input is empty" },
 	{ action: "app.menu", label: "command menu" },
 	{ action: "app.model.cycle", label: "next model" },
 	{ action: "app.redraw", label: "redraw the screen" },

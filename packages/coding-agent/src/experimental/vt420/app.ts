@@ -966,6 +966,10 @@ export class Vt420App {
 			void this.showSessions();
 			return;
 		}
+		if (this.keymap.matches(key, "app.queue.edit") && this.editor.empty && this.queued > 0 && !this.scrolling) {
+			this.editQueued();
+			return;
+		}
 		const page = Math.max(1, this.regionHeight - 2);
 		const handlers: Array<[Vt420Action, () => void]> = [
 			["app.interrupt", () => this.interrupt()],
@@ -1006,6 +1010,14 @@ export class Vt420App {
 	private toggleTools(): void {
 		this.expandTools = !this.expandTools;
 		this.flash(this.expandTools ? "Expanded tool calls" : "Collapsed tool calls");
+	}
+
+	/** The messages waiting for the model back in the input, out of the queue, to edit and send again. */
+	private editQueued(): void {
+		const { steering, followUp } = this.session.clearQueue();
+		const queued = [...steering, ...followUp];
+		this.editor.setText(queued.join("\n\n"));
+		this.flash(`${queued.length} queued message${queued.length === 1 ? "" : "s"} back in the input`);
 	}
 
 	private toggleScrolling(): void {
