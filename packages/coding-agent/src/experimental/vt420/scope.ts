@@ -88,7 +88,8 @@ export const SCOPE_FONT: string[] = (() => {
 
 const SCAN_LINES = ["⎽", "⎼", "─", "⎻", "⎺"];
 const SINE_LINES = [..."⎺⎻─⎼⎽⎼─⎻"];
-const SQUARE_LINES = [..."⎺⎺│⎽⎽│"];
+// no edges: a line drawing │ stands mid-cell, between the scan lines it would join
+const SQUARE_LINES = [..."⎺⎺⎽⎽"];
 const VOICE_LINES = loudness.map((level) => SCAN_LINES[Math.floor(level * SCAN_LINES.length)]!);
 const STANDING_LINES = ["⎺⎽⎺⎽", "────", "⎽⎺⎽⎺", "────"];
 

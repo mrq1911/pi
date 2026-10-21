@@ -1030,7 +1030,7 @@ describe("vt420 app", () => {
 				`[${String.fromCodePoint(0xf0000 + first)}-${String.fromCodePoint(0xf0000 + first + count - 1)}]{4}`;
 			const sine = softFont ? soft(0x21, 4) : "[⎺⎻─⎼⎽]{4}";
 			const voice = softFont ? soft(0x25, 16) : "[⎺⎻─⎼⎽]{4}";
-			const square = softFont ? soft(0x35, 4) : "[⎺│⎽]{4}";
+			const square = softFont ? soft(0x35, 4) : "[⎺⎽]{4}";
 			if (softFont) expect(app.output.join("")).toContain("\x1bP1;1;1;10;0;2;16;0{ @");
 			else expect(app.output.join("")).not.toContain("\x1bP");
 			await app.type("go");
