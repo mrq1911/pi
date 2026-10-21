@@ -59,18 +59,6 @@ function thinkingBlock(thinking: string, streaming: boolean): TranscriptBlock {
 }
 
 describe("vt420 transcript thinking", () => {
-	it("streams the latest thinking tokens on one line", () => {
-		expect(linesText(thinkingBlock("", true).render(context()))).toEqual(["∴ thinking"]);
-		expect(linesText(thinkingBlock(THINKING.slice(0, 30), true).render(context()))).toEqual([
-			"∴ Reading the footer · The us",
-		]);
-		const lines = linesText(thinkingBlock(THINKING, true).render(context()));
-		expect(lines).toEqual(["∴ ...l check footerCells, then the tests"]);
-		expect(lines[0]).toHaveLength(WIDTH);
-		const more = linesText(thinkingBlock(`${THINKING} pass`, true).render(context()));
-		expect(more).toEqual(["∴ ...ck footerCells, then the tests pass"]);
-	});
-
 	it("settles on how long it thought once it is done, or else how many tokens", () => {
 		const answering = new TranscriptBlock(1, {
 			kind: "assistant",
@@ -104,43 +92,42 @@ describe("vt420 transcript thinking", () => {
 		expect(expanded.length).toBeGreaterThan(3);
 	});
 
-	it("rolls live thinking up two rows on a DEC terminal, a smooth scroll for each line it fills", () => {
-		const rolling = { ...context(), rollThinking: true };
+	it("rolls live thinking up two rows, a scroll for each line it fills, smooth where the terminal glides", () => {
 		// a hole in each margin of every line, like continuous-form paper
-		expect(linesText(thinkingBlock("", true).render(rolling))).toEqual([
+		expect(linesText(thinkingBlock("", true).render(context()))).toEqual([
 			`° thinking${" ".repeat(WIDTH - 12)} °`,
 			`°${" ".repeat(WIDTH - 2)}°`,
 		]);
-		const renderer = new Renderer({
-			rows: 4,
-			columns: WIDTH,
-			statusLine: false,
-			rectangularOps: true,
-			eraseCharacters: true,
-			eightBit: false,
-		});
-		const emulator = new Vt420Emulator({ rows: 4, columns: WIDTH });
-		emulator.feed(SESSION_MODES + charsetDesignations({ technical: true, supplemental: "dec", eightBit: false }));
-		const words = `${THINKING} and then the renderer, and the emulator after it`.split(" ");
-		let rolls = 0;
-		for (let count = 1; count <= words.length; count++) {
-			const lines = thinkingBlock(words.slice(0, count).join(" "), true).render(rolling);
-			expect(lines).toHaveLength(2);
-			const above = { cells: charset.cells("above"), attr: LINE_SINGLE } as const;
-			const frame: Frame = {
-				lines: [above, ...lines, { cells: [], attr: LINE_SINGLE }],
-				scroll: { top: 0, bottom: 3 },
-			};
-			const bytes = renderer.render(frame);
-			if (bytes.includes("\x1b[?4h\x1bD\x1b[?4l")) rolls++;
-			emulator.feed(Buffer.from(bytes, "latin1"));
-			expect([emulator.text(0), emulator.text(1), emulator.text(2)]).toEqual(["above", ...linesText(lines)]);
+		// a VT420 and an emulator alike, which jumps where the VT420 glides
+		for (const unicode of [false, true]) {
+			const renderer = new Renderer({
+				rows: 4,
+				columns: WIDTH,
+				statusLine: false,
+				rectangularOps: true,
+				eraseCharacters: true,
+				eightBit: false,
+				unicode,
+			});
+			const emulator = new Vt420Emulator({ rows: 4, columns: WIDTH, utf8: unicode });
+			emulator.feed(SESSION_MODES + charsetDesignations({ technical: true, supplemental: "dec", eightBit: false }));
+			const words = `${THINKING} and then the renderer, and the emulator after it`.split(" ");
+			let rolls = 0;
+			for (let count = 1; count <= words.length; count++) {
+				const lines = thinkingBlock(words.slice(0, count).join(" "), true).render(context());
+				expect(lines).toHaveLength(2);
+				const above = { cells: charset.cells("above"), attr: LINE_SINGLE } as const;
+				const frame: Frame = {
+					lines: [above, ...lines, { cells: [], attr: LINE_SINGLE }],
+					scroll: { top: 0, bottom: 3 },
+				};
+				const bytes = renderer.render(frame);
+				if (bytes.includes("\x1b[?4h\x1bD\x1b[?4l")) rolls++;
+				emulator.feed(Buffer.from(bytes, unicode ? "utf8" : "latin1"));
+				expect([emulator.text(0), emulator.text(1), emulator.text(2)]).toEqual(["above", ...linesText(lines)]);
+			}
+			expect(rolls).toBeGreaterThan(1);
 		}
-		expect(rolls).toBeGreaterThan(1);
-		// once done it settles on one line, as on emulators
-		expect(linesText(thinkingBlock(THINKING, false).render(rolling))).toEqual(
-			linesText(thinkingBlock(THINKING, false).render(context())),
-		);
 	});
 
 	it("makes the last three words of live thinking glow", () => {
@@ -148,7 +135,7 @@ describe("vt420 transcript thinking", () => {
 			linesText(lines.map((line) => ({ ...line, cells: line.cells.filter((cell) => cell & ATTR_BOLD) }))).filter(
 				(text) => text !== "",
 			);
-		const views = [context(), { ...context(), rollThinking: true }, context(true)];
+		const views = [context(), context(true)];
 		for (const view of views) {
 			expect(glowing(thinkingBlock(THINKING, true).render(view)).join(" ")).toBe("then the tests");
 			expect(glowing(thinkingBlock(`${THINKING} pass`, true).render(view)).join(" ")).toBe("the tests pass");
@@ -157,36 +144,6 @@ describe("vt420 transcript thinking", () => {
 			expect(glowing(thinkingBlock("", true).render(view))).toEqual([]);
 			expect(glowing(thinkingBlock(THINKING, false).render(view))).toEqual([]);
 		}
-	});
-
-	it("scrolls the ticker in the terminal with a few bytes per update", () => {
-		const words = THINKING.split(" ");
-		const send = (eraseCharacters: boolean): number => {
-			const renderer = new Renderer({
-				rows: 4,
-				columns: WIDTH,
-				statusLine: false,
-				rectangularOps: true,
-				eraseCharacters,
-				eightBit: false,
-			});
-			const emulator = new Vt420Emulator({ rows: 4, columns: WIDTH });
-			emulator.feed(SESSION_MODES + charsetDesignations({ technical: true, supplemental: "dec", eightBit: false }));
-			let sent = 0;
-			for (let count = 1; count <= words.length; count++) {
-				const lines = thinkingBlock(words.slice(0, count).join(" "), true).render(context());
-				const frame: Frame = { lines: [...lines, { cells: [], attr: LINE_SINGLE }], scroll: { top: 0, bottom: 3 } };
-				const bytes = renderer.render(frame);
-				emulator.feed(Buffer.from(bytes, "latin1"));
-				expect(emulator.text(0)).toBe(linesText(lines)[0]);
-				// once the line is full, every word scrolls it
-				if (count > words.length - 4) sent += bytes.length;
-			}
-			return sent;
-		};
-		const shifted = send(true);
-		expect(shifted).toBeLessThan(160);
-		expect(shifted * 1.15).toBeLessThan(send(false));
 	});
 });
 

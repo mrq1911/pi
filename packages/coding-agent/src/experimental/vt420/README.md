@@ -73,15 +73,15 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
 - **Rolling thinking**: collapsed thinking fills two rows as tokens arrive, and each time the lower one is full the
   terminal smooth-scrolls the pair up a line (DECSCLM for that one scroll, inside its own DECSTBM margins), so the
   latest tokens are always in view and the text rolls on like paper, the holes in both its margins feeding up with it.
-  Emulators, which do not scroll smoothly, get one line that scrolls left instead. Either way the newest three words glow
-  in bold. Once the model moves on, it settles on one line with how long it took, `∴ Thought for 1 min 32 sec`.
+  Emulators, which do not scroll smoothly, get the same two rows, jumping a line where the VT420 glides. The newest
+  three words glow in bold. Once the model moves on, it settles on one line with how long it took, `∴ Thought for 1 min 32 sec`.
   Sessions do not record that, so in a resumed one it says how many tokens instead: the provider's count where it
   reports one, `∴ Thought for 1.2k tokens`, or else four characters to a token, `∴ Thought for ≃1.2k tokens`. PF3 shows
   all of it. Tool calls show their command on one line, line breaks and continuations joined, as much as fits; PF4
   shows each call in full, the command with its line breaks and every argument, and up to 400 lines of its output.
   A call that ran a second or more says for how long beside its √ or ×, in a resumed session too.
 - **Bandwidth**: a diff renderer with relative cursor moves, IND/RI hardware scrolling inside DECSTBM margins, DCH to
-  scroll the emulators' thinking ticker in place, ECH and DECFRA for long rules. A frame goes to a DEC terminal in
+  shift text that moved left within a line, ECH and DECFRA for long rules. A frame goes to a DEC terminal in
   pieces of 96 bytes at most, each ending with a DSR request (DA1 where the terminal ignores DSR), and pieces go out
   only while those unanswered come to 200 bytes at most, which a VT420's input buffer of 254 holds even while it
   glides, so even a page never runs ahead of the terminal while small frames still follow each other without a pause,

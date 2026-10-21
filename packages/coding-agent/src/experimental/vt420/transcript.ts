@@ -27,8 +27,6 @@ export interface RenderContext {
 	cwd: string;
 	home: string;
 	showThinking: boolean;
-	/** Live thinking rolls up two rows with the terminal's smooth scroll instead of ticking along one. */
-	rollThinking?: boolean;
 	expandTools: boolean;
 	largeHeadings: boolean;
 	tick: number;
@@ -212,9 +210,7 @@ function renderAssistant(
 			const live = streaming && index === message.content.length - 1;
 			if (!context.showThinking) {
 				if (!live) out.push(thoughtLine(message, index, thinkingTimes, context));
-				else if (context.rollThinking)
-					out.push(...thinkingWindow(thinking, `${message.timestamp}:${index}`, context));
-				else out.push(thinkingLine(thinking, context));
+				else out.push(...thinkingWindow(thinking, `${message.timestamp}:${index}`, context));
 				continue;
 			}
 			const lines = expandTabs(thinking || "thinking")
@@ -243,29 +239,6 @@ function renderAssistant(
 		out.push(...renderNotice("error", text, context));
 	}
 	return out;
-}
-
-/** Live thinking on one line: the latest tokens, scrolling left as they arrive. */
-function thinkingLine(thinking: string, context: RenderContext): Line {
-	const { charset, width } = context;
-	const marker = charset.pick("∴", "»");
-	const prefix = charset.cells(`${marker} `);
-	const room = Math.max(1, width - prefix.length);
-	const ellipsis = charset.cells("…");
-	// flatten only the end that shows, widening until it overflows the line
-	let cells: number[] = [];
-	for (let take = room * 2; ; take *= 2) {
-		const whole = take >= thinking.length;
-		cells = charset.cells(flattenThinking(whole ? thinking : thinking.slice(-take)));
-		if (whole || cells.length > room) break;
-	}
-	if (cells.length === 0) return { cells: charset.cells(`${marker} thinking`), attr: LINE_SINGLE };
-	cells = glowLastWords(cells, GLOW_WORDS).cells;
-	if (cells.length > room) {
-		const cut = room > ellipsis.length ? ellipsis : [];
-		cells = [...cut, ...cells.slice(cells.length - room + cut.length)];
-	}
-	return { cells: [...prefix, ...cells], attr: LINE_SINGLE };
 }
 
 function thoughtLine(
