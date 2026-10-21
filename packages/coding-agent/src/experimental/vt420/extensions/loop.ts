@@ -45,6 +45,10 @@ interface Loop {
 	/** An interval run came due while another turn ran. */
 	due: boolean;
 	timer?: ReturnType<typeof setTimeout>;
+	/** When the next run is set to go, for the countdown; undefined while a self-paced run decides. */
+	nextAt?: number;
+	/** Counts the status down a second at a time. */
+	ticker?: ReturnType<typeof setInterval>;
 }
 
 /** "30s", "5m", "2h" or "1h30m"; a unit is needed, so a prompt that starts with a number stays a prompt. */
@@ -78,13 +82,15 @@ export default function loopExtension(pi: ExtensionAPI) {
 			context?.ui.setStatus("loop", undefined);
 			return;
 		}
-		const runs = `${loop.runs} run${loop.runs === 1 ? "" : "s"}`;
-		context?.ui.setStatus("loop", loop.intervalMs ? `∞ ${formatInterval(loop.intervalMs)} · ${runs}` : `∞ ${runs}`);
+		// a run that came due goes as soon as the turn going on ends
+		const wait = loop.due ? 0 : loop.nextAt === undefined ? undefined : Math.max(0, loop.nextAt - Date.now());
+		context?.ui.setStatus("loop", wait === undefined ? "∞" : `∞ in ${formatInterval(wait)}`);
 	};
 
 	const stop = (message?: string): void => {
 		if (!loop) return;
 		clearTimeout(loop.timer);
+		clearInterval(loop.ticker);
 		loop = undefined;
 		toolActive(false);
 		status();
@@ -103,6 +109,8 @@ export default function loopExtension(pi: ExtensionAPI) {
 		current.started = false;
 		current.paced = false;
 		current.runs++;
+		// a self-paced loop learns its next wait at the end of this run
+		if (!current.intervalMs) current.nextAt = undefined;
 		status();
 		pi.sendUserMessage(current.prompt, { expandPromptTemplates: true });
 		setTimeout(() => {
@@ -130,12 +138,15 @@ export default function loopExtension(pi: ExtensionAPI) {
 			}
 			const delay = Math.max(MIN_DELAY_MS, current.nextDelayMs);
 			current.nextDelayMs = 0;
+			current.nextAt = Date.now() + delay;
 			current.timer = setTimeout(run, delay);
+			status();
 		} else if (current.due) setTimeout(run, 0);
 	};
 
 	const every = (ms: number): void => {
 		if (!loop) return;
+		loop.nextAt = Date.now() + ms;
 		loop.timer = setTimeout(() => {
 			run();
 			every(ms);
@@ -211,7 +222,7 @@ export default function loopExtension(pi: ExtensionAPI) {
 				return;
 			}
 			stop();
-			loop = {
+			const started: Loop = {
 				command: `/loop ${text}`,
 				prompt,
 				intervalMs,
@@ -221,10 +232,13 @@ export default function loopExtension(pi: ExtensionAPI) {
 				nextDelayMs: 0,
 				paced: false,
 				due: false,
+				ticker: setInterval(status, 1000),
 			};
+			loop = started;
 			toolActive(true);
 			run();
 			if (intervalMs) every(intervalMs);
+			status();
 		},
 	});
 

@@ -411,7 +411,10 @@ describe("vt420 app", () => {
 		await waitForIdle(harness);
 		// on the right of the separator row, which says Help keys beside it when nothing works
 		const separator = (): string => app.emulator.screen().find((row) => row.startsWith("─"))!;
-		expect(separator()).toMatch(/─ ∞ 1h · 1 run · Help keys ─$/);
+		// counting down to the next run, a second at a time
+		expect(separator()).toMatch(/─ ∞ in (1h|59m5\ds) · Help keys ─$/);
+		await settle(1100);
+		expect(separator()).toMatch(/─ ∞ in 59m5\ds · Help keys ─$/);
 		expect(app.screen()).toContain("π /loop 1h check the build");
 		expect(app.screen()).not.toContain("π check the build");
 		await app.key("up");
