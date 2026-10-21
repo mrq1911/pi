@@ -175,7 +175,7 @@ through `gh`; the bug report's consents, upload or a zip in the current director
 separator row, where interrupt cancels it.
 
 Extension commands work as in pi, pi's own and yours (`--no-extensions` leaves yours out): they get the frontend's
-lists, yes-or-no questions, one-line prompts, notices and the separator row for their status, and appear in Tab
+lists, yes-or-no questions, one-line prompts, notices and the right of the separator row for their status, and appear in Tab
 completion, the command menu and help, with skills as `/skill:name`. What needs pi's TUI components (widgets, custom
 components) does nothing, as in RPC mode. `/llama` manages a llama.cpp router the same way, as a series of lists and
 prompts with its progress on the separator row.
@@ -183,8 +183,9 @@ prompts with its progress on the separator row.
 `/loop` runs a prompt again and again: `/loop 5m check the build` every five minutes (a run that
 comes due while another turn runs waits for it), `/loop keep the tests green` again as each run ends, the model
 choosing the wait before the next or ending the loop with a `loop_next` tool that is only active meanwhile. `/loop`
-shows what loops, `/loop stop` ends it, and so does interrupting a run. Its runs show in the transcript, and come back
-with Up, as the `/loop` that sent them, in a resumed session too. It is an extension
+shows what loops, `/loop stop` ends it, and so does interrupting a run. While it loops, the right of the separator row
+says so, `∞ 5m · 3 runs`. Its runs show in the transcript, and come back with Up, as the `/loop` that sent them, in a
+resumed session too. It is an extension
 (`extensions/loop.ts`) that `install.sh` links into `~/.pi/agent/extensions`, so the npm pi loads it too, as it
 does `/rename`, another name for `/name`, for fingers trained on other agents.
 Prompt templates and `/skill:name` work as in pi. `!cmd` runs a shell command; `!!cmd` keeps its output out of the context.

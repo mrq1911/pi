@@ -3092,7 +3092,7 @@ export class Vt420App {
 			return traced(word(this.workingWord ?? doing), phase, seconds > 0 ? ` ${formatDuration(seconds)}` : "");
 		}
 		if (this.bashRunning) return traced(word("Running"), "tool");
-		return this.extensionStatus === undefined ? undefined : charset.cells(this.extensionStatus);
+		return undefined;
 	}
 
 	/** What the model is at: a tool it called running, its thinking, its writing, else reading what it was sent. */
@@ -3135,6 +3135,8 @@ export class Vt420App {
 		if (this.mode.kind === "normal") {
 			const hidden = Math.max(0, this.transcriptLength - this.regionHeight - this.scrollTop);
 			const parts = this.scrolling ? ["Scrolling"] : [];
+			// what extensions say lasts, so it keeps to the right, where the work going on leaves it be
+			if (this.extensionStatus) parts.push(this.extensionStatus);
 			if (!this.follow && hidden > 0) {
 				parts.push(charset.has("↓") ? `↓ ${hidden} more` : `${hidden} more below`);
 				parts.push(this.keymap.label("app.scroll.bottom"));

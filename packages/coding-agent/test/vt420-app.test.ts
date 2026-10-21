@@ -409,6 +409,9 @@ describe("vt420 app", () => {
 			running.emulator.screen().find((row) => row.startsWith("π"));
 		await app.submit("/loop 1h check the build");
 		await waitForIdle(harness);
+		// on the right of the separator row, which says Help keys beside it when nothing works
+		const separator = (): string => app.emulator.screen().find((row) => row.startsWith("─"))!;
+		expect(separator()).toMatch(/─ ∞ 1h · 1 run · Help keys ─$/);
 		expect(app.screen()).toContain("π /loop 1h check the build");
 		expect(app.screen()).not.toContain("π check the build");
 		await app.key("up");

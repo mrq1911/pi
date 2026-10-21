@@ -78,8 +78,8 @@ export default function loopExtension(pi: ExtensionAPI) {
 			context?.ui.setStatus("loop", undefined);
 			return;
 		}
-		const pace = loop.intervalMs ? `every ${formatInterval(loop.intervalMs)}` : "self-paced";
-		context?.ui.setStatus("loop", `loop ${pace} · ${loop.runs} run${loop.runs === 1 ? "" : "s"}`);
+		const runs = `${loop.runs} run${loop.runs === 1 ? "" : "s"}`;
+		context?.ui.setStatus("loop", loop.intervalMs ? `∞ ${formatInterval(loop.intervalMs)} · ${runs}` : `∞ ${runs}`);
 	};
 
 	const stop = (message?: string): void => {
