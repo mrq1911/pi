@@ -184,10 +184,8 @@ prompts with its progress on the separator row.
 comes due while another turn runs waits for it), `/loop keep the tests green` again as each run ends, the model
 choosing the wait before the next or ending the loop with a `loop_next` tool that is only active meanwhile. `/loop`
 shows what loops, `/loop stop` ends it, and so does interrupting a run. While it loops, the right of the separator row
-counts down to the next run, `∞ in 3m12s`; a self-paced one shows only `∞` while a run decides its next wait. Its
-runs show in the transcript, and come back with Up, as the `/loop` that sent them, in a resumed session too. It is an
-extension
-(`extensions/loop.ts`) that `install.sh` links into `~/.pi/agent/extensions`, so the npm pi loads it too, as it
+says for how long, `∞ 12m`. Its runs show in the transcript, and come back with Up, as the `/loop` that sent them, in
+a resumed session too. It is an extension (`extensions/loop.ts`) that `install.sh` links into `~/.pi/agent/extensions`, so the npm pi loads it too, as it
 does `/rename`, another name for `/name`, for fingers trained on other agents.
 Prompt templates and `/skill:name` work as in pi. `!cmd` runs a shell command; `!!cmd` keeps its output out of the context.
 
