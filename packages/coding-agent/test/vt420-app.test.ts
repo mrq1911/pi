@@ -18,6 +18,7 @@ import type { Vt420Setup } from "@mrq/vt420-emu/vt420.js";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import { Vt420App, type Vt420AppOptions, type Vt420Io, type Vt420Runtime } from "../src/experimental/vt420/app.ts";
+import loopExtension from "../src/experimental/vt420/extensions/loop.ts";
 import { Keymap } from "../src/experimental/vt420/keys.ts";
 import { formatTokens } from "../src/experimental/vt420/widgets.ts";
 import { createHarness, type Harness } from "./suite/harness.ts";
@@ -397,6 +398,33 @@ describe("vt420 app", () => {
 		await waitForIdle(harness);
 		await app.key("ctrl+d");
 		await app.done;
+	});
+
+	it("shows a /loop's runs as the /loop that sent them, in the transcript and the history, after a resume too", async () => {
+		const harness = await createHarness({ extensionFactories: [{ factory: loopExtension }] });
+		harnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage("checked")]);
+		const app = await start(harness);
+		const editor = (running: Running): string | undefined =>
+			running.emulator.screen().find((row) => row.startsWith("π"));
+		await app.submit("/loop 1h check the build");
+		await waitForIdle(harness);
+		expect(app.screen()).toContain("π /loop 1h check the build");
+		expect(app.screen()).not.toContain("π check the build");
+		await app.key("up");
+		expect(editor(app)).toBe("π /loop 1h check the build");
+		await app.key("ctrl+c");
+		await app.submit("/loop stop");
+		await app.key("ctrl+d");
+		await app.done;
+		// a frontend that finds the session as it was, the way a resume does
+		const again = await start(harness);
+		expect(again.screen()).toContain("π /loop 1h check the build");
+		await again.key("up");
+		expect(editor(again)).toBe("π /loop 1h check the build");
+		await again.key("ctrl+c");
+		await again.key("ctrl+d");
+		await again.done;
 	});
 
 	it("quits on /q as on /quit", async () => {

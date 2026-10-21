@@ -16,12 +16,19 @@ import { Type } from "typebox";
 import type { ExtensionAPI, ExtensionContext } from "../../../core/extensions/index.ts";
 
 const TOOL = "loop_next";
+/** The note beside each run's prompt; its details carry the /loop as typed, which a frontend can show for the run. */
+export const LOOP_NOTE = "loop";
+export interface LoopNoteDetails {
+	command: string;
+}
 /** Shortest wait between self-paced runs, so a loop that does nothing cannot spin. */
 const MIN_DELAY_MS = 1000;
 /** A run whose prompt starts no turn (a command that only does something) ends after this long. */
 const START_GRACE_MS = 500;
 
 interface Loop {
+	/** The /loop as typed. */
+	command: string;
 	prompt: string;
 	/** Fixed interval; undefined runs again as each run ends. */
 	intervalMs?: number;
@@ -205,6 +212,7 @@ export default function loopExtension(pi: ExtensionAPI) {
 			}
 			stop();
 			loop = {
+				command: `/loop ${text}`,
 				prompt,
 				intervalMs,
 				runs: 0,
@@ -233,7 +241,8 @@ export default function loopExtension(pi: ExtensionAPI) {
 		const content = current.intervalMs
 			? `This turn is run ${current.runs} of a /loop that repeats the prompt every ${formatInterval(current.intervalMs)}.`
 			: `This turn is run ${current.runs} of a self-paced /loop that repeats the prompt. Before you finish, call ${TOOL}: delaySeconds for how long to wait before the next run (0 to go again at once, more when waiting on something slow), or stop: true with a reason once the work is done or cannot go on. Without that call the loop ends.`;
-		return { message: { customType: "loop", content, display: false } };
+		const details: LoopNoteDetails = { command: current.command };
+		return { message: { customType: LOOP_NOTE, content, display: false, details } };
 	});
 
 	pi.on("agent_start", (_event, ctx) => {

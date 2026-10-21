@@ -67,6 +67,7 @@ import { getChangelogPath, normalizeChangelogLinks, parseChangelog } from "../..
 import { copyToClipboard } from "../../utils/clipboard.ts";
 import { LineEditor } from "./editor.ts";
 import { createExtensionUI } from "./extension-ui.ts";
+import { LOOP_NOTE, type LoopNoteDetails } from "./extensions/loop.ts";
 import { formatAge, formatDuration } from "./format.ts";
 import type { Keymap, Vt420Action } from "./keys.ts";
 import { renderMarkdown } from "./markdown.ts";
@@ -323,6 +324,30 @@ function messageText(content: unknown): string {
 		.join("");
 }
 
+type SessionMessage = AgentSession["messages"][number];
+
+/** The /loop a message is the note of a run of, from the note's details. */
+function loopNoteCommand(message: SessionMessage): string | undefined {
+	if (message.role !== "custom" || message.customType !== LOOP_NOTE) return undefined;
+	const command = (message.details as Partial<LoopNoteDetails> | undefined)?.command;
+	return typeof command === "string" ? command : undefined;
+}
+
+/** The user messages a /loop sent, each with the /loop that sent it, which the note after it names. */
+function loopCommands(messages: readonly SessionMessage[]): Map<SessionMessage, string> {
+	const commands = new Map<SessionMessage, string>();
+	for (const [index, message] of messages.entries()) {
+		const command = loopNoteCommand(message);
+		if (command === undefined) continue;
+		for (let at = index - 1; at >= 0; at--) {
+			const before = messages[at]!;
+			if (before.role === "user") commands.set(before, command);
+			if (before.role !== "custom") break;
+		}
+	}
+	return commands;
+}
+
 export class Vt420App {
 	private readonly options: Vt420AppOptions;
 	private readonly runtime: Vt420Runtime;
@@ -336,6 +361,8 @@ export class Vt420App {
 	private follow = true;
 	private scrollTop = 0;
 	private scrolling = false;
+	/** The latest user message's block, which a /loop's note can name the run of. */
+	private lastUser: TranscriptBlock | undefined;
 	/** When text last came in, typed or pasted, to tell a paste's Returns from a typed one. */
 	private lastTextAt = 0;
 	/** The scope font went to a terminal that takes soft fonts. */
@@ -567,9 +594,12 @@ export class Vt420App {
 		this.unsubscribe = session.subscribe((event) => this.onSessionEvent(event));
 		this.working = session.isStreaming;
 		this.rebuildTranscript();
-		// Up brings back what was sent in this session, as pi does
+		// Up brings back what was sent in this session, as pi does, a loop's runs as the /loop that sent them
+		const commands = loopCommands(session.messages);
 		this.editor.resetHistory(
-			session.messages.flatMap((message) => (message.role === "user" ? [messageText(message.content)] : [])),
+			session.messages.flatMap((message) =>
+				message.role === "user" ? [commands.get(message) ?? messageText(message.content)] : [],
+			),
 		);
 		this.refreshFooter();
 		this.requestRender();
@@ -599,10 +629,11 @@ export class Vt420App {
 					context.width,
 				),
 		});
+		const commands = loopCommands(session.messages);
 		for (const message of session.messages) {
 			switch (message.role) {
 				case "user": {
-					const text = messageText(message.content);
+					const text = commands.get(message) ?? messageText(message.content);
 					if (text.trim()) this.transcript.add({ kind: "user", text });
 					break;
 				}
@@ -709,8 +740,15 @@ export class Vt420App {
 			case "message_start":
 				if (event.message.role === "user") {
 					const text = messageText(event.message.content);
-					if (text.trim()) this.transcript.add({ kind: "user", text });
+					this.lastUser = text.trim() ? this.transcript.add({ kind: "user", text }) : undefined;
 					this.follow = true;
+				} else if (loopNoteCommand(event.message) !== undefined) {
+					// a /loop's run: its prompt shows as the /loop that sent it
+					const block = this.lastUser;
+					if (block?.content.kind === "user") {
+						block.content.text = loopNoteCommand(event.message)!;
+						block.touch();
+					}
 				} else if (event.message.role === "assistant") {
 					this.streaming = this.transcript.add({
 						kind: "assistant",
