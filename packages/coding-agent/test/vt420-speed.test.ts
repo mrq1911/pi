@@ -56,18 +56,19 @@ describe("vt420 speed meter", () => {
 });
 
 describe("vt420 durations", () => {
-	it("counts seconds, then minutes and seconds, minutes from ten on, then hours and minutes", () => {
-		expect([0, 45, 59.9, 60, 187, 599, 600, 754, 3599, 3600, 6000, 90_061].map(formatDuration)).toEqual([
+	it("counts seconds, then minutes and seconds, minutes from ten on, then hours and minutes, without zeroes", () => {
+		expect([0, 45, 59.9, 60, 180, 187, 599, 600, 754, 3599, 3600, 6000, 90_061].map(formatDuration)).toEqual([
 			"0s",
 			"45s",
 			"59s",
-			"1m 00s",
+			"1m",
+			"3m",
 			"3m 07s",
 			"9m 59s",
 			"10m",
 			"12m",
 			"59m",
-			"1h 00m",
+			"1h",
 			"1h 40m",
 			"25h 01m",
 		]);
