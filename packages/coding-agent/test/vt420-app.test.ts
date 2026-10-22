@@ -1037,7 +1037,7 @@ describe("vt420 app", () => {
 		expect(screen).toContain("π list files");
 		expect(screen).not.toContain("Consider the directory first");
 		// the thinking and the calls fold into one line, the failed one marked
-		expect(screen).toMatch(/^∴ 1 sec · \$ ×\$ Δ *$/m);
+		expect(screen).toMatch(/^∴ 1 sec · \$ \$× Δ *$/m);
 		expect(screen).not.toContain("$ ls -la");
 		expect(screen).toContain("Done: all good → ok");
 		// PF4 shows them all again
