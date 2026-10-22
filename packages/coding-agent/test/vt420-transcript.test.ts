@@ -28,6 +28,7 @@ function context(showThinking = false): RenderContext {
 		home: "/home/user",
 		showThinking,
 		expandTools: false,
+		foldSteps: true,
 		largeHeadings: true,
 		tick: 0,
 		now: 0,
@@ -240,11 +241,12 @@ describe("vt420 transcript steps", () => {
 		expect(lines[2]).toMatch(/^↑ a\.ts +·$/);
 	});
 
-	it("shows every step again with PF3 or PF4", () => {
+	it("shows every step again unfolded, and PF3 or PF4 alone leave them folded", () => {
+		const unfolded = shown(stretch(undefined), { foldSteps: false });
+		expect(unfolded.some((line) => line.startsWith("$ make"))).toBe(true);
+		expect(unfolded).toContain("∴ Thought for 12 sec");
 		for (const view of [{ expandTools: true }, { showThinking: true }]) {
-			const lines = shown(stretch(undefined), view);
-			expect(lines.some((line) => line.startsWith("$ make"))).toBe(true);
-			expect(lines.some((line) => /^∴ (Thought for 12 sec|look first)/.test(line))).toBe(true);
+			expect(shown(stretch(undefined), view)[0]).toMatch(/^∴ 20 sec · \$× ↑ +3s$/);
 		}
 	});
 });

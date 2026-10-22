@@ -28,6 +28,8 @@ export interface RenderContext {
 	home: string;
 	showThinking: boolean;
 	expandTools: boolean;
+	/** Stretches of the model's steps fold into one line each. */
+	foldSteps: boolean;
 	largeHeadings: boolean;
 	tick: number;
 	now: number;
@@ -127,7 +129,7 @@ export class Transcript {
 
 	/**
 	 * All transcript lines, with one blank line between turns. Tool blocks attach to the turn above them, and a
-	 * boxed message's edges take the place of the blank lines around it. Unless PF3 or PF4 shows it all, each stretch
+	 * boxed message's edges take the place of the blank lines around it. Unless F17 unfolds them, each stretch
 	 * of the model's steps, thinking and calls with no text between, folds into one line, the thinking of the answer
 	 * after it too; while the model works, the latest step stays in full beneath the line.
 	 */
@@ -145,7 +147,7 @@ export class Transcript {
 			previous = kind;
 			edged = boxed;
 		};
-		const fold = !context.expandTools && !context.showThinking;
+		const fold = context.foldSteps;
 		const blocks = this.blocks;
 		for (let at = 0; at < blocks.length; ) {
 			const block = blocks[at]!;

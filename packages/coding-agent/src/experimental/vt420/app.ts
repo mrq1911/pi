@@ -230,6 +230,10 @@ export const COMMANDS: readonly CommandInfo[] = [
 	{ name: "reload", description: "reload skills, prompts and context files" },
 	{ name: "charset", description: "show every VT420 glyph" },
 	{ name: "redraw", description: "repaint the screen" },
+	{ name: "fold", args: "[on|off]", description: "fold thinking and calls into one line, or show them" },
+	{ name: "thoughts", args: "[on|off]", description: "show or hide the thinking text" },
+	{ name: "expand", args: "[on|off]", description: "show tool calls in full, or one line each" },
+	{ name: "scroll", args: "[on|off]", description: "Up, Down and the wheel scroll the transcript" },
 	{ name: "screensaver", args: "[off|blank|progress|matrix] [min]", description: "dark screen now, or set when" },
 	{ name: "quit", description: "exit, also /q" },
 ];
@@ -371,6 +375,8 @@ export class Vt420App {
 	private transcriptLength = 0;
 	private showThinking = false;
 	private expandTools = false;
+	/** Stretches of thinking and calls fold into one line each. */
+	private foldSteps = true;
 	private tick = 0;
 	private working = false;
 	private workingSince = 0;
@@ -483,7 +489,7 @@ export class Vt420App {
 			},
 			toolsExpanded: () => this.expandTools,
 			setToolsExpanded: (expanded) => {
-				if (expanded !== this.expandTools) this.toggleTools();
+				if (expanded !== this.expandTools) this.setToolsExpanded(expanded);
 			},
 		});
 	}
@@ -1023,13 +1029,14 @@ export class Vt420App {
 			["app.thinking.cycle", () => this.cycleThinking()],
 			["app.model.select", () => void this.showModels()],
 			["app.model.cycle", () => void this.cycleModel()],
-			["app.thinking.toggle", () => this.toggleThinking()],
-			["app.tools.expand", () => this.toggleTools()],
+			["app.thinking.toggle", () => this.setThinkingShown(!this.showThinking)],
+			["app.tools.expand", () => this.setToolsExpanded(!this.expandTools)],
+			["app.steps.fold", () => this.setFold(!this.foldSteps)],
 			["app.scroll.pageUp", () => this.scrollBy(-page)],
 			["app.scroll.pageDown", () => this.scrollBy(page)],
 			["app.scroll.top", () => this.scrollBy(-this.transcriptLength)],
 			["app.scroll.bottom", () => this.scrollToEnd()],
-			["app.scroll.mode", () => this.toggleScrolling()],
+			["app.scroll.mode", () => this.setScrolling(!this.scrolling)],
 			["app.scroll.wheelUp", () => this.scrollBy(-3)],
 			["app.scroll.wheelDown", () => this.scrollBy(3)],
 		];
@@ -1040,14 +1047,26 @@ export class Vt420App {
 		else this.editKey(this.editor, key, true);
 	}
 
-	private toggleThinking(): void {
-		this.showThinking = !this.showThinking;
-		this.flash(this.showThinking ? "Showing thinking" : "Hiding thinking");
+	/** A switch's command: on or off as asked, or the other way with nothing said. */
+	private switchCommand(name: string, args: string, on: boolean, set: (on: boolean) => void): void {
+		if (args === "") set(!on);
+		else if (args === "on" || args === "off") set(args === "on");
+		else this.notice("warning", `Usage: /${name} [on|off]`);
 	}
 
-	private toggleTools(): void {
-		this.expandTools = !this.expandTools;
-		this.flash(this.expandTools ? "Expanded tool calls" : "Collapsed tool calls");
+	private setThinkingShown(on: boolean): void {
+		this.showThinking = on;
+		this.flash(on ? "Showing thinking" : "Hiding thinking");
+	}
+
+	private setToolsExpanded(on: boolean): void {
+		this.expandTools = on;
+		this.flash(on ? "Expanded tool calls" : "Collapsed tool calls");
+	}
+
+	private setFold(on: boolean): void {
+		this.foldSteps = on;
+		this.flash(on ? "Folded thinking and calls" : "Unfolded thinking and calls");
 	}
 
 	/** The messages waiting for the model back in the input, out of the queue, ahead of what it holds, as pi does. */
@@ -1059,11 +1078,11 @@ export class Vt420App {
 		this.flash(`${queued.length} queued message${queued.length === 1 ? "" : "s"} back in the input`);
 	}
 
-	private toggleScrolling(): void {
-		this.scrolling = !this.scrolling;
-		this.io.setWheel?.(this.scrolling);
-		if (!this.scrolling) this.scrollToEnd();
-		this.flash(this.scrolling ? "Up, Down and the wheel scroll the transcript" : "Up and Down move in the input");
+	private setScrolling(on: boolean): void {
+		this.scrolling = on;
+		this.io.setWheel?.(on);
+		if (!on) this.scrollToEnd();
+		this.flash(on ? "Up, Down and the wheel scroll the transcript" : "Up and Down move in the input");
 	}
 
 	private scrollToEnd(): void {
@@ -1326,6 +1345,18 @@ export class Vt420App {
 				return true;
 			case "redraw":
 				this.redraw();
+				return true;
+			case "fold":
+				this.switchCommand(name, args, this.foldSteps, (on) => this.setFold(on));
+				return true;
+			case "thoughts":
+				this.switchCommand(name, args, this.showThinking, (on) => this.setThinkingShown(on));
+				return true;
+			case "expand":
+				this.switchCommand(name, args, this.expandTools, (on) => this.setToolsExpanded(on));
+				return true;
+			case "scroll":
+				this.switchCommand(name, args, this.scrolling, (on) => this.setScrolling(on));
 				return true;
 			case "screensaver":
 				this.screensaverCommand(args);
@@ -2819,6 +2850,7 @@ export class Vt420App {
 			home: homedir(),
 			showThinking: this.showThinking,
 			expandTools: this.expandTools,
+			foldSteps: this.foldSteps,
 			// letter-spaced headings read badly, so without double size they stay at normal size
 			largeHeadings: (this.options.largeHeadings ?? true) && this.io.caps.doubleSize !== false,
 			tick: this.tick,

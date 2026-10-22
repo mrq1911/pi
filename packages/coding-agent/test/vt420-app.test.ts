@@ -463,6 +463,39 @@ describe("vt420 app", () => {
 		await again.done;
 	});
 
+	it("switches folding, thinking, tool calls and scroll mode by command as by their keys", async () => {
+		const harness = await createHarness({ tools: [echoBash] });
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxThinking("look"), fauxToolCall("bash", { command: "ls" })], {
+				stopReason: "toolUse",
+			}),
+			fauxAssistantMessage("done"),
+		]);
+		const app = await start(harness);
+		const separator = (): string => app.emulator.screen().find((row) => row.startsWith("─"))!;
+		await app.submit("go");
+		await waitForIdle(harness);
+		expect(app.screen()).not.toMatch(/^\$ ls/m);
+		await app.submit("/fold off");
+		expect(app.screen()).toMatch(/^\$ ls/m);
+		expect(separator()).toContain("Unfolded thinking and calls");
+		await app.submit("/fold");
+		expect(app.screen()).not.toMatch(/^\$ ls/m);
+		await app.submit("/thoughts on");
+		expect(separator()).toContain("Showing thinking");
+		await app.submit("/expand");
+		expect(separator()).toContain("Expanded tool calls");
+		await app.submit("/scroll on");
+		expect(app.wheel()).toBe(true);
+		await app.submit("/scroll off");
+		expect(app.wheel()).toBe(false);
+		await app.submit("/fold maybe");
+		expect(app.screen()).toContain("Usage: /fold [on|off]");
+		await app.key("ctrl+d");
+		await app.done;
+	});
+
 	it("quits on /q as on /quit", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
@@ -1040,8 +1073,8 @@ describe("vt420 app", () => {
 		expect(screen).toMatch(/^∴ 1 sec · \$ \$× Δ *$/m);
 		expect(screen).not.toContain("$ ls -la");
 		expect(screen).toContain("Done: all good → ok");
-		// PF4 shows them all again
-		await app.key("pf4");
+		// F17 shows them all again
+		await app.key("f17");
 		const expanded = app.screen();
 		expect(expanded).toContain("∴ Thought for 1 sec");
 		expect(expanded).toMatch(/\$ ls -la\s+√/);
@@ -1051,7 +1084,7 @@ describe("vt420 app", () => {
 		expect(expanded).toContain("  └ Command exited with code 2");
 		expect(expanded).toMatch(/Δ src\/main\.ts\s+\+2 -1 √/);
 		expect(expanded).toContain("  │ +1 new line");
-		await app.key("pf4");
+		await app.key("f17");
 		// your message sits in a box whose edges replace the blank rows around it, with nothing inverted
 		const rows = app.emulator.screen();
 		const userRow = rows.findIndex((line) => line.startsWith("│ π list files"));
@@ -1082,6 +1115,7 @@ describe("vt420 app", () => {
 		await app.submit("list");
 		await waitForIdle(harness);
 		expect(app.screen()).toMatch(/^\$ *$/m);
+		await app.key("f17");
 		await app.key("pf4");
 		const rows = app.emulator.screen();
 		const call = rows.findIndex((line) => line.startsWith("$ cd src &&"));
@@ -1367,7 +1401,7 @@ describe("vt420 app", () => {
 		expect(app.emulator.statusText()).not.toMatch(/\^0|v0|\$/);
 		await app.submit("go");
 		await waitForIdle(harness);
-		await app.key("pf4");
+		await app.key("f17");
 		expect(app.screen()).toMatch(/\$ ls\s+ok/);
 		await app.key("ctrl+d");
 		await app.done;
