@@ -1035,16 +1035,23 @@ describe("vt420 app", () => {
 		await waitForIdle(harness);
 		const screen = app.screen();
 		expect(screen).toContain("π list files");
-		expect(screen).toContain("∴ Thought for 1 sec");
 		expect(screen).not.toContain("Consider the directory first");
-		expect(screen).toMatch(/\$ ls -la\s+√/);
-		expect(screen).toContain("  │ line one");
-		expect(screen).toContain("  └ line two");
-		expect(screen).toMatch(/^\$ false && exit +×$/m);
-		expect(screen).toContain("  └ Command exited with code 2");
-		expect(screen).toMatch(/Δ src\/main\.ts\s+\+2 -1 √/);
-		expect(screen).toContain("  │ +1 new line");
+		// the thinking and the calls fold into one line, the failed one marked
+		expect(screen).toMatch(/^∴ 1 sec · \$ ×\$ Δ +×$/m);
+		expect(screen).not.toContain("$ ls -la");
 		expect(screen).toContain("Done: all good → ok");
+		// PF4 shows them all again
+		await app.key("pf4");
+		const expanded = app.screen();
+		expect(expanded).toContain("∴ Thought for 1 sec");
+		expect(expanded).toMatch(/\$ ls -la\s+√/);
+		expect(expanded).toContain("  │ line one");
+		expect(expanded).toContain("  └ line two");
+		expect(expanded).toMatch(/^\$ false && exit +×$/m);
+		expect(expanded).toContain("  └ Command exited with code 2");
+		expect(expanded).toMatch(/Δ src\/main\.ts\s+\+2 -1 √/);
+		expect(expanded).toContain("  │ +1 new line");
+		await app.key("pf4");
 		// your message sits in a box whose edges replace the blank rows around it, with nothing inverted
 		const rows = app.emulator.screen();
 		const userRow = rows.findIndex((line) => line.startsWith("│ π list files"));
@@ -1074,7 +1081,7 @@ describe("vt420 app", () => {
 		const app = await start(harness);
 		await app.submit("list");
 		await waitForIdle(harness);
-		expect(app.screen()).toMatch(/\$ cd src && ls -la +√/);
+		expect(app.screen()).toMatch(/^\$ +√$/m);
 		await app.key("pf4");
 		const rows = app.emulator.screen();
 		const call = rows.findIndex((line) => line.startsWith("$ cd src &&"));
@@ -1172,7 +1179,7 @@ describe("vt420 app", () => {
 		const app = await start(harness);
 		await app.submit("again");
 		await waitForIdle(harness);
-		const timed = app.emulator.screen().filter((line) => /^ƒ slow +1s √$/.test(line));
+		const timed = app.emulator.screen().filter((line) => /^ƒ +1s √$/.test(line));
 		expect(timed).toHaveLength(2);
 		await app.key("ctrl+d");
 		await app.done;
@@ -1360,7 +1367,7 @@ describe("vt420 app", () => {
 		expect(app.emulator.statusText()).not.toMatch(/\^0|v0|\$/);
 		await app.submit("go");
 		await waitForIdle(harness);
-		expect(app.screen()).toMatch(/\$ ls\s+ok/);
+		expect(app.screen()).toMatch(/^\$ +ok$/m);
 		await app.key("ctrl+d");
 		await app.done;
 	});

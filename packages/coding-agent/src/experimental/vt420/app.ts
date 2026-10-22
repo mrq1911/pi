@@ -2823,6 +2823,7 @@ export class Vt420App {
 			largeHeadings: (this.options.largeHeadings ?? true) && this.io.caps.doubleSize !== false,
 			tick: this.tick,
 			now: Date.now(),
+			working: this.working,
 			key: (action) => this.keymap.label(action),
 		};
 	}

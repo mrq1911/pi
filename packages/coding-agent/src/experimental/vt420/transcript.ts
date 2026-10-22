@@ -5,8 +5,8 @@
  * width or a display toggle changes. Running blocks re-render per spinner tick; finished blocks never do.
  *
  * Glyphs: user turns are boxed in line drawing and led by π; thinking is ∴; tools are ↑ read, ← write, Δ edit,
- * $ bash, ∼ grep, ∇ find, ├ ls and ƒ for everything else; √ and × close a tool; a bouncing scan line
- * (⎺⎻─⎼⎽) marks work in progress.
+ * $ bash, ∼ grep, ∇ find, ├ ls and ƒ for everything else; √ and × close a tool; a · ◆ heartbeat marks one
+ * running. A stretch of thinking and calls folds into one line of those glyphs once the model moves on.
  */
 
 import type { AssistantMessage } from "@earendil-works/pi-ai";
@@ -31,6 +31,8 @@ export interface RenderContext {
 	largeHeadings: boolean;
 	tick: number;
 	now: number;
+	/** The model is at work, so the last stretch of its steps keeps the latest one in full. */
+	working?: boolean;
 	/** Display label for the key bound to an action, e.g. "PF4". */
 	key(action: "app.tools.expand" | "app.thinking.toggle"): string;
 }
@@ -91,10 +93,11 @@ export class TranscriptBlock {
 		return false;
 	}
 
-	render(context: RenderContext): Line[] {
-		const key = `${this.version}|${context.width}|${context.showThinking}|${context.expandTools}|${this.animated ? context.tick : ""}`;
+	/** `answerOnly` leaves out an answer's thinking before its text, which the summary of the steps before it took. */
+	render(context: RenderContext, answerOnly = false): Line[] {
+		const key = `${this.version}|${context.width}|${context.showThinking}|${context.expandTools}|${answerOnly}|${this.animated ? context.tick : ""}`;
 		if (key === this.cacheKey) return this.cached;
-		this.cached = renderBlock(this.content, context);
+		this.cached = renderBlock(this.content, context, answerOnly);
 		this.cacheKey = key;
 		return this.cached;
 	}
@@ -124,25 +127,135 @@ export class Transcript {
 
 	/**
 	 * All transcript lines, with one blank line between turns. Tool blocks attach to the turn above them, and a
-	 * boxed message's edges take the place of the blank lines around it.
+	 * boxed message's edges take the place of the blank lines around it. Unless PF3 or PF4 shows it all, each stretch
+	 * of the model's steps, thinking and calls with no text between, folds into one line, the thinking of the answer
+	 * after it too; while the model works, the latest step stays in full beneath the line.
 	 */
 	lines(context: RenderContext): Line[] {
 		const out: Line[] = [];
-		let previous: BlockContent["kind"] | undefined;
+		let previous: BlockContent["kind"] | "steps" | undefined;
 		let edged = false;
-		for (const block of this.blocks) {
-			const lines = block.render(context);
-			if (lines.length === 0) continue;
-			const kind = block.content.kind;
-			const boxed = isBoxed(block.content);
-			const attached = kind === "tool" && (previous === "tool" || previous === "assistant");
+		const emit = (kind: BlockContent["kind"] | "steps", lines: Line[], boxed: boolean, step = false): void => {
+			if (lines.length === 0) return;
+			const attached =
+				(kind === "tool" && (previous === "tool" || previous === "assistant" || previous === "steps")) ||
+				(step && previous === "steps");
 			if (out.length > 0 && !attached && !boxed && !edged) out.push({ cells: [], attr: LINE_SINGLE });
 			for (const line of lines) out.push(line);
 			previous = kind;
 			edged = boxed;
+		};
+		const fold = !context.expandTools && !context.showThinking;
+		const blocks = this.blocks;
+		for (let at = 0; at < blocks.length; ) {
+			const block = blocks[at]!;
+			if (!fold || !isStep(block)) {
+				emit(block.content.kind, block.render(context), isBoxed(block.content));
+				at++;
+				continue;
+			}
+			let end = at;
+			while (end < blocks.length && isStep(blocks[end]!)) end++;
+			const steps = blocks.slice(at, end);
+			const live = end === blocks.length && context.working === true;
+			const folded = live ? latestStep(steps) : steps.length;
+			const answer = live ? undefined : answerAfter(blocks[end]);
+			if (folded > 0 || answer) emit("steps", [stepsLine(steps.slice(0, folded), answer, context)], false);
+			for (const step of steps.slice(folded)) emit(step.content.kind, step.render(context), false, true);
+			if (answer) {
+				emit("assistant", answer.render(context, true), false);
+				at = end + 1;
+			} else at = end;
 		}
 		return out;
 	}
+}
+
+/** A step of the model's work: a call, or a reply of thinking and calls with nothing for the reader. */
+function isStep(block: TranscriptBlock): boolean {
+	const content = block.content;
+	if (content.kind === "tool") return true;
+	if (content.kind !== "assistant") return false;
+	const { message } = content;
+	if (message.stopReason === "error" || message.stopReason === "aborted") return false;
+	return !message.content.some((part) => part.type === "text" && part.text.trim() !== "");
+}
+
+/** Where the latest step begins: its reply, or else the first call still going; the steps before it fold. */
+function latestStep(steps: readonly TranscriptBlock[]): number {
+	const reply = steps.findLastIndex((step) => step.content.kind === "assistant");
+	if (reply >= 0) return reply;
+	const going = steps.findIndex((step) => step.animated);
+	return going >= 0 ? going : steps.length;
+}
+
+/** The answer after a stretch of steps, when it thought first: that thinking joins the steps' line. */
+function answerAfter(block: TranscriptBlock | undefined): TranscriptBlock | undefined {
+	if (!block || block.content.kind !== "assistant" || isStep(block)) return undefined;
+	const { message } = block.content;
+	if (message.stopReason === "error" || message.stopReason === "aborted") return undefined;
+	return message.content[0]?.type === "thinking" ? block : undefined;
+}
+
+/** "∴ 32 sec · $ ↑ ↑ ×$ Δ" with how long the calls ran and √ or × on the right. */
+function stepsLine(
+	steps: readonly TranscriptBlock[],
+	answer: TranscriptBlock | undefined,
+	context: RenderContext,
+): Line {
+	const { charset } = context;
+	let thought = false;
+	let timed = true;
+	let thinkingMs = 0;
+	let tokens = 0;
+	let estimated = false;
+	const think = (content: Extract<BlockContent, { kind: "assistant" }>, before: number): void => {
+		for (const [index, part] of content.message.content.entries()) {
+			if (index >= before) break;
+			if (part.type !== "thinking") continue;
+			thought = true;
+			const time = content.thinkingTimes?.get(index);
+			if (time?.until !== undefined) thinkingMs += time.until - time.since;
+			else timed = false;
+			const counted = thinkingTokens(content.message, index);
+			tokens += counted?.count ?? 0;
+			estimated ||= counted?.estimated ?? false;
+		}
+	};
+	const glyphs: string[] = [];
+	let failed = false;
+	let ranMs = 0;
+	for (const step of steps) {
+		const content = step.content;
+		if (content.kind === "assistant") think(content, content.message.content.length);
+		else if (content.kind === "tool") {
+			const { tool } = content;
+			const glyph = TOOL_GLYPHS[tool.name] ?? "ƒ";
+			const shown = charset.has(glyph) ? glyph : tool.name;
+			glyphs.push(tool.status === "error" ? `${failMark(charset)}${shown}` : shown);
+			failed ||= tool.status === "error";
+			ranMs += tool.durationMs ?? 0;
+		}
+	}
+	if (answer?.content.kind === "assistant") {
+		const parts = answer.content.message.content;
+		think(
+			answer.content,
+			parts.findIndex((part) => part.type === "text"),
+		);
+	}
+	const marker = charset.pick("∴", "»");
+	const about = estimated ? charset.pick("≃", "~") : "";
+	const thinking = !thought
+		? undefined
+		: timed
+			? `${marker} ${formatSpan(thinkingMs / 1000)}`
+			: tokens > 0
+				? `${marker} ${about}${formatTokens(tokens)} token${tokens === 1 ? "" : "s"}`
+				: marker;
+	const summary = [thinking, glyphs.join(" ")].filter(Boolean).join(" · ");
+	const status = glyphs.length > 0 ? finishedStatus(failed ? failMark(charset) : okMark(charset), "", ranMs) : "";
+	return header(summary, status, context);
 }
 
 /** A user message is boxed unless it only invokes a skill. */
@@ -152,12 +265,12 @@ function isBoxed(content: BlockContent): boolean {
 	return !skill || Boolean(skill.userMessage);
 }
 
-function renderBlock(content: BlockContent, context: RenderContext): Line[] {
+function renderBlock(content: BlockContent, context: RenderContext, answerOnly: boolean): Line[] {
 	switch (content.kind) {
 		case "user":
 			return renderUser(content.text, context);
 		case "assistant":
-			return renderAssistant(content.message, content.streaming, content.thinkingTimes, context);
+			return renderAssistant(content.message, content.streaming, content.thinkingTimes, context, answerOnly);
 		case "tool":
 			return renderTool(content.tool, context);
 		case "bash":
@@ -201,10 +314,14 @@ function renderAssistant(
 	streaming: boolean,
 	thinkingTimes: ThinkingTimes | undefined,
 	context: RenderContext,
+	answerOnly = false,
 ): Line[] {
 	const { charset, width } = context;
 	const out: Line[] = [];
+	let leading = answerOnly;
 	for (const [index, content] of message.content.entries()) {
+		if (content.type === "text") leading = false;
+		if (content.type === "thinking" && leading) continue;
 		if (content.type === "thinking") {
 			const thinking = content.thinking.trim();
 			const live = streaming && index === message.content.length - 1;

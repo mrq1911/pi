@@ -6,7 +6,12 @@ import { charsetDesignations, SESSION_MODES } from "@mrq/vt420/sequences.js";
 import { linesText, Vt420Emulator } from "@mrq/vt420-emu/emulator.js";
 import { describe, expect, it } from "vitest";
 import { traceCells } from "../src/experimental/vt420/scope.ts";
-import { type RenderContext, type ToolState, TranscriptBlock } from "../src/experimental/vt420/transcript.ts";
+import {
+	type RenderContext,
+	type ToolState,
+	Transcript,
+	TranscriptBlock,
+} from "../src/experimental/vt420/transcript.ts";
 import { tokenCounts } from "../src/experimental/vt420/widgets.ts";
 
 const WIDTH = 40;
@@ -167,6 +172,80 @@ describe("vt420 token counts", () => {
 		expect(tokenCounts(charset, { ...tokens, cacheRead: 0 })).toBe("↑12k ↓1.2k");
 		const plain = new Charset({ technical: false, supplemental: "dec", eightBit: false });
 		expect(tokenCounts(plain, tokens)).toBe("in 12k 76% cached out 1.2k");
+	});
+});
+
+describe("vt420 transcript steps", () => {
+	const call = (name: string, command: string): AssistantMessage["content"][number] => ({
+		type: "toolCall",
+		id: command,
+		name,
+		arguments: { command },
+	});
+	const stretch = (live: { running: boolean } | undefined): Transcript => {
+		const transcript = new Transcript();
+		const thought = (ms: number) => new Map([[0, { since: 0, until: ms }]]);
+		transcript.add({ kind: "user", text: "fix the build" });
+		transcript.add({
+			kind: "assistant",
+			message: reply([{ type: "thinking", thinking: "look first" }, call("bash", "make")]),
+			streaming: false,
+			thinkingTimes: thought(12_000),
+		});
+		transcript.add({
+			kind: "tool",
+			tool: { name: "bash", args: { command: "make" }, status: "error", output: "boom", durationMs: 1000 },
+		});
+		transcript.add({
+			kind: "assistant",
+			message: reply([{ type: "thinking", thinking: "then read" }, call("read", "a.ts")]),
+			streaming: false,
+			thinkingTimes: thought(3000),
+		});
+		transcript.add({
+			kind: "tool",
+			tool: {
+				name: "read",
+				args: { path: "/work/a.ts" },
+				status: live?.running ? "running" : "done",
+				output: "x",
+				durationMs: live?.running ? undefined : 2000,
+				startedAt: 0,
+			},
+		});
+		if (!live) {
+			transcript.add({
+				kind: "assistant",
+				message: reply([
+					{ type: "thinking", thinking: "so" },
+					{ type: "text", text: "Fixed it." },
+				]),
+				streaming: false,
+				thinkingTimes: thought(5000),
+			});
+		}
+		return transcript;
+	};
+	const shown = (transcript: Transcript, view: Partial<RenderContext> = {}): string[] =>
+		linesText(transcript.lines({ ...context(), ...view })).slice(3);
+
+	it("folds thinking and calls into one line, the answer's thinking too, a failed call marked", () => {
+		expect(shown(stretch(undefined))).toEqual([`∴ 20 sec · ×$ ↑${" ".repeat(21)}3s ×`, "", "Fixed it."]);
+	});
+
+	it("keeps the latest step in full while the model works, beneath the ones done", () => {
+		const lines = shown(stretch({ running: true }), { working: true });
+		expect(lines[0]).toBe(`∴ 12 sec · ×$${" ".repeat(23)}1s ×`);
+		expect(lines[1]).toBe("∴ Thought for 3 sec");
+		expect(lines[2]).toMatch(/^↑ a\.ts +·$/);
+	});
+
+	it("shows every step again with PF3 or PF4", () => {
+		for (const view of [{ expandTools: true }, { showThinking: true }]) {
+			const lines = shown(stretch(undefined), view);
+			expect(lines.some((line) => line.startsWith("$ make"))).toBe(true);
+			expect(lines.some((line) => /^∴ (Thought for 12 sec|look first)/.test(line))).toBe(true);
+		}
 	});
 });
 
