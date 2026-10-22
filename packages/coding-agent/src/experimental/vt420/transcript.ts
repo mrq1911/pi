@@ -197,7 +197,7 @@ function answerAfter(block: TranscriptBlock | undefined): TranscriptBlock | unde
 	return message.content[0]?.type === "thinking" ? block : undefined;
 }
 
-/** "∴ 32 sec · $ ↑ ↑ ×$ Δ" with how long the calls ran and √ or × on the right. */
+/** "∴ 32 sec · $ ↑ ↑ ×$ Δ" with how long the calls ran on the right; × marks a call that failed. */
 function stepsLine(
 	steps: readonly TranscriptBlock[],
 	answer: TranscriptBlock | undefined,
@@ -223,7 +223,6 @@ function stepsLine(
 		}
 	};
 	const glyphs: string[] = [];
-	let failed = false;
 	let ranMs = 0;
 	for (const step of steps) {
 		const content = step.content;
@@ -233,7 +232,6 @@ function stepsLine(
 			const glyph = TOOL_GLYPHS[tool.name] ?? "ƒ";
 			const shown = charset.has(glyph) ? glyph : tool.name;
 			glyphs.push(tool.status === "error" ? `${failMark(charset)}${shown}` : shown);
-			failed ||= tool.status === "error";
 			ranMs += tool.durationMs ?? 0;
 		}
 	}
@@ -254,7 +252,7 @@ function stepsLine(
 				? `${marker} ${about}${formatTokens(tokens)} token${tokens === 1 ? "" : "s"}`
 				: marker;
 	const summary = [thinking, glyphs.join(" ")].filter(Boolean).join(" · ");
-	const status = glyphs.length > 0 ? finishedStatus(failed ? failMark(charset) : okMark(charset), "", ranMs) : "";
+	const status = finishedStatus("", "", ranMs);
 	return header(summary, status, context);
 }
 

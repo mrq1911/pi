@@ -230,12 +230,12 @@ describe("vt420 transcript steps", () => {
 		linesText(transcript.lines({ ...context(), ...view })).slice(3);
 
 	it("folds thinking and calls into one line, the answer's thinking too, a failed call marked", () => {
-		expect(shown(stretch(undefined))).toEqual([`∴ 20 sec · ×$ ↑${" ".repeat(21)}3s ×`, "", "Fixed it."]);
+		expect(shown(stretch(undefined))).toEqual([`∴ 20 sec · ×$ ↑${" ".repeat(23)}3s`, "", "Fixed it."]);
 	});
 
 	it("keeps the latest step in full while the model works, beneath the ones done", () => {
 		const lines = shown(stretch({ running: true }), { working: true });
-		expect(lines[0]).toBe(`∴ 12 sec · ×$${" ".repeat(23)}1s ×`);
+		expect(lines[0]).toBe(`∴ 12 sec · ×$${" ".repeat(25)}1s`);
 		expect(lines[1]).toBe("∴ Thought for 3 sec");
 		expect(lines[2]).toMatch(/^↑ a\.ts +·$/);
 	});

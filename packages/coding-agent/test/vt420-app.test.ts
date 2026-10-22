@@ -1037,7 +1037,7 @@ describe("vt420 app", () => {
 		expect(screen).toContain("π list files");
 		expect(screen).not.toContain("Consider the directory first");
 		// the thinking and the calls fold into one line, the failed one marked
-		expect(screen).toMatch(/^∴ 1 sec · \$ ×\$ Δ +×$/m);
+		expect(screen).toMatch(/^∴ 1 sec · \$ ×\$ Δ *$/m);
 		expect(screen).not.toContain("$ ls -la");
 		expect(screen).toContain("Done: all good → ok");
 		// PF4 shows them all again
@@ -1081,7 +1081,7 @@ describe("vt420 app", () => {
 		const app = await start(harness);
 		await app.submit("list");
 		await waitForIdle(harness);
-		expect(app.screen()).toMatch(/^\$ +√$/m);
+		expect(app.screen()).toMatch(/^\$ *$/m);
 		await app.key("pf4");
 		const rows = app.emulator.screen();
 		const call = rows.findIndex((line) => line.startsWith("$ cd src &&"));
@@ -1179,7 +1179,7 @@ describe("vt420 app", () => {
 		const app = await start(harness);
 		await app.submit("again");
 		await waitForIdle(harness);
-		const timed = app.emulator.screen().filter((line) => /^ƒ +1s √$/.test(line));
+		const timed = app.emulator.screen().filter((line) => /^ƒ +1s$/.test(line));
 		expect(timed).toHaveLength(2);
 		await app.key("ctrl+d");
 		await app.done;
@@ -1367,7 +1367,8 @@ describe("vt420 app", () => {
 		expect(app.emulator.statusText()).not.toMatch(/\^0|v0|\$/);
 		await app.submit("go");
 		await waitForIdle(harness);
-		expect(app.screen()).toMatch(/^\$ +ok$/m);
+		await app.key("pf4");
+		expect(app.screen()).toMatch(/\$ ls\s+ok/);
 		await app.key("ctrl+d");
 		await app.done;
 	});
