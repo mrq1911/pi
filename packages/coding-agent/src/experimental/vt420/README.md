@@ -135,7 +135,7 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
 | Return | send; steer while working; a pasted one, the last line's too, is a new line |
 | Do (F5 elsewhere) | queue a follow-up |
 | Ctrl+J | new line |
-| F6 Interrupt, F11 ESC | interrupt, close menus |
+| F6 Interrupt, F11 ESC | interrupt, close menus; messages queued for the run come back into the input, as in pi |
 | F8 Cancel, Ctrl+C | clear input; twice to exit |
 | F10 Exit, Ctrl+D | exit when the input is empty |
 | F7 Resume, Left on an empty input | pick a session |

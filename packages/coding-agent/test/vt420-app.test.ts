@@ -400,6 +400,36 @@ describe("vt420 app", () => {
 		await app.done;
 	});
 
+	it("puts queued messages back in the input when a run is interrupted, ahead of what was typed, as pi does", async () => {
+		const harness = await createHarness({ tokensPerSecond: 40 });
+		harnesses.push(harness);
+		const words = Array.from({ length: 120 }, (_, i) => `word${i}`).join(" ");
+		harness.setResponses([fauxAssistantMessage(words), fauxAssistantMessage("ok")]);
+		const app = await start(harness);
+		await app.submit("go");
+		await app.submit("first change");
+		await app.submit("second change");
+		await app.type("a draft");
+		await app.key("f6");
+		await waitForIdle(harness);
+		expect(harness.session.getSteeringMessages()).toHaveLength(0);
+		const rows = app.emulator.screen();
+		const first = rows.findIndex((row) => row === "π first change");
+		expect(first).toBeGreaterThan(-1);
+		expect(rows.slice(first, first + 5).map((row) => row.trimEnd())).toEqual([
+			"π first change",
+			"␤",
+			"␤ second change",
+			"␤",
+			"␤ a draft",
+		]);
+		// nothing went out on its own: the run stopped, the queue waits in the input
+		expect(harness.session.messages.filter((message) => message.role === "user")).toHaveLength(1);
+		await app.key("ctrl+c");
+		await app.key("ctrl+d");
+		await app.done;
+	});
+
 	it("shows a /loop's runs as the /loop that sent them, in the transcript and the history, after a resume too", async () => {
 		const harness = await createHarness({ extensionFactories: [{ factory: loopExtension }] });
 		harnesses.push(harness);

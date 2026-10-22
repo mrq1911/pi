@@ -1050,11 +1050,12 @@ export class Vt420App {
 		this.flash(this.expandTools ? "Expanded tool calls" : "Collapsed tool calls");
 	}
 
-	/** The messages waiting for the model back in the input, out of the queue, to edit and send again. */
+	/** The messages waiting for the model back in the input, out of the queue, ahead of what it holds, as pi does. */
 	private editQueued(): void {
 		const { steering, followUp } = this.session.clearQueue();
 		const queued = [...steering, ...followUp];
-		this.editor.setText(queued.join("\n\n"));
+		if (queued.length === 0) return;
+		this.editor.setText([...queued, this.editor.text].filter((text) => text.trim()).join("\n\n"));
 		this.flash(`${queued.length} queued message${queued.length === 1 ? "" : "s"} back in the input`);
 	}
 
@@ -1164,7 +1165,11 @@ export class Vt420App {
 			session.abortCompaction();
 			session.abortBranchSummary();
 		}
-		if (session.isStreaming) void session.abort();
+		if (session.isStreaming) {
+			// what waited for this run would go out with the next one unseen; it comes back to be sent or dropped
+			this.editQueued();
+			void session.abort();
+		}
 		if (!busy) this.follow = true;
 	}
 
