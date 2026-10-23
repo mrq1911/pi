@@ -491,7 +491,7 @@ describe("vt420 app", () => {
 		await app.submit("/scroll off");
 		expect(app.wheel()).toBe(false);
 		await app.submit("/fold maybe");
-		expect(app.screen()).toContain("Usage: /fold [on|off|auto|<calls>]");
+		expect(app.screen()).toContain("Usage: /fold [on|off|auto|<steps>]");
 		await app.key("ctrl+d");
 		await app.done;
 	});

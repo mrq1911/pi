@@ -147,7 +147,7 @@ export interface Vt420AppOptions {
 	screensaver?: SaverMode | "auto";
 	screensaverMinutes?: number;
 	saverMoveMs?: number;
-	/** How many calls a stretch of thinking and calls may have before it folds, or "auto": as long as it fits. */
+	/** How many latest steps of a stretch stay unfolded, the older folding, or "auto": as many as fit the screen. */
 	foldAfter?: FoldAfter;
 	/** Keep settings changed by a command, such as /screensaver. */
 	saveSettings?(settings: { screensaver?: SaverMode; screensaverMinutes?: number; foldAfter?: FoldAfter }): void;
@@ -233,7 +233,7 @@ export const COMMANDS: readonly CommandInfo[] = [
 	{ name: "reload", description: "reload skills, prompts and context files" },
 	{ name: "charset", description: "show every VT420 glyph" },
 	{ name: "redraw", description: "repaint the screen" },
-	{ name: "fold", args: "[on|off|auto|calls]", description: "fold thinking and calls into one line, and when" },
+	{ name: "fold", args: "[on|off|auto|steps]", description: "fold thinking and calls into one line, and when" },
 	{ name: "thoughts", args: "[on|off]", description: "show or hide the thinking text" },
 	{ name: "expand", args: "[on|off]", description: "show tool calls in full, or one line each" },
 	{ name: "scroll", args: "[on|off]", description: "Up, Down and the wheel scroll the transcript" },
@@ -1086,8 +1086,8 @@ export class Vt420App {
 		this.options.saveSettings?.({ foldAfter: after });
 		this.flash(
 			after === "auto"
-				? "Folding thinking and calls that do not fit the screen"
-				: `Folding thinking and calls past ${after} call${after === 1 ? "" : "s"}`,
+				? "Folding the oldest steps as the screen needs"
+				: `Keeping the latest ${after} step${after === 1 ? "" : "s"} of each stretch unfolded`,
 		);
 	}
 
@@ -1372,7 +1372,7 @@ export class Vt420App {
 				if (args === "auto" || /^\d+$/.test(args)) this.setFoldAfter(args === "auto" ? "auto" : Number(args));
 				else if (args === "" || args === "on" || args === "off")
 					this.switchCommand(name, args, this.foldSteps, (on) => this.setFold(on));
-				else this.notice("warning", "Usage: /fold [on|off|auto|<calls>]");
+				else this.notice("warning", "Usage: /fold [on|off|auto|<steps>]");
 				return true;
 			case "thoughts":
 				this.switchCommand(name, args, this.showThinking, (on) => this.setThinkingShown(on));

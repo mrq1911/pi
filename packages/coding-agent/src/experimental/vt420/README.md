@@ -82,9 +82,10 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
   A call that ran a second or more says for how long beside its √ or ×, in a resumed session too. A stretch of
   thinking and calls with no text between folds into one line, `∴ 32 sec · > ↑ ↑ >× Δ   1m 05s`: how long it
   thought, the answer's thinking after it included, a glyph for each call in order, × on one that failed, and how long
-  the calls ran. Stretches fold only as it takes, oldest first, for your latest message and all after it to fit on
-  the screen; `"foldAfter": 3` in `vt420.json`, or `/fold 3`, folds instead every stretch of more than three calls,
-  `0` every one, and `/fold auto` goes back. While the model works, the latest step shows in full beneath the line,
+  the calls ran. A step, one reply's thinking and its calls, folds into that line only as it takes, the oldest one at
+  a time, for your latest message and the steps after it to fit on the screen; a long answer after them does not fold
+  any more. `"foldAfter": 3` in `vt420.json`, or `/fold 3`, keeps instead the latest three steps of each stretch and
+  folds the older ones, `0` all of them, and `/fold auto` goes back. While the model works, the latest step shows in full beneath the line,
   and a call still going beats, · ◆, in the line where it will fold to; glyphs that do not fit go on beneath. The live
   view only ever scrolls up: what folds leaves its rows blank at the bottom, for what comes next to fill.
   F17 (`/fold`) unfolds them all and folds them again; PF3 and PF4 show thinking and calls in full where unfolded.
@@ -172,7 +173,7 @@ the LK401's F14 to F20, Help and Do on, count as those keys. Every binding can b
 `/compact [focus]`, `/session`, `/name [name]`, `/settings`, `/scoped-models`, `/login [provider]`,
 `/logout [provider]`, `/trust`, `/copy`, `/share`, `/bug [what went wrong]`,
 `/export [path]` (HTML, or JSONL for a `.jsonl` path), `/changelog`, `/reload`, `/charset`, `/redraw`,
-`/fold`, `/thoughts`, `/expand` and `/scroll` (each `[on|off]`, as their keys switch them; `/fold auto|<calls>` sets
+`/fold`, `/thoughts`, `/expand` and `/scroll` (each `[on|off]`, as their keys switch them; `/fold auto|<steps>` sets
 when stretches fold),
 `/screensaver [off|blank|progress|matrix] [minutes]`, `/quit` (or `/q`). `/copy` uses OSC 52 on an emulator and the desktop
 clipboard on a host that has one; a VT420 has neither. `/settings` has pi's settings that apply here (auto-compact,

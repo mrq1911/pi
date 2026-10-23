@@ -30,7 +30,7 @@ export interface RenderContext {
 	expandTools: boolean;
 	/** Stretches of the model's steps fold into one line each. */
 	foldSteps: boolean;
-	/** When a stretch folds: past this many calls, or "auto", as it takes for each turn to fit `height` rows. */
+	/** How many steps of a stretch stay unfolded, the latest, or "auto": as many as each turn fits in `height` rows. */
 	foldAfter?: FoldAfter;
 	/** Rows the transcript has on the screen. */
 	height?: number;
@@ -66,7 +66,7 @@ export interface BashState {
 
 export type ThinkingTimes = Map<number, { since: number; until?: number }>;
 
-/** How many calls a stretch of steps may have before it folds, or "auto": as needed for the turn to fit the screen. */
+/** How many of a stretch's latest steps stay unfolded, or "auto": as many as fit the screen with the user's message. */
 export type FoldAfter = "auto" | number;
 
 export type BlockContent =
@@ -148,14 +148,16 @@ export class Transcript {
 	}
 
 	/**
-	 * The stretches that fold, by their first step: past `foldAfter` calls each, or, "auto", in each turn, from one of
-	 * the user's messages to the next, as many as it takes, oldest first, for the turn to fit the screen.
+	 * How many steps of each stretch fold, by the stretch's first block: all but the latest `foldAfter`, or, "auto", in
+	 * each turn, from one of the user's messages to the next, the oldest one at a time, as many as it takes for the
+	 * message and the steps after it to fit the screen; an answer after the last of them does not fold any more.
+	 * While the model works, its latest step never folds.
 	 */
-	private folding(context: RenderContext): Set<number> {
-		const folded = new Set<number>();
-		if (!context.foldSteps) return folded;
+	private folding(context: RenderContext): Map<number, number> {
+		const folds = new Map<number, number>();
+		if (!context.foldSteps) return folds;
 		const blocks = this.blocks;
-		const stretches: Array<{ start: number; end: number }> = [];
+		const stretches: Array<{ start: number; end: number; steps: number }> = [];
 		for (let at = 0; at < blocks.length; ) {
 			if (!isStep(blocks[at]!)) {
 				at++;
@@ -163,16 +165,18 @@ export class Transcript {
 			}
 			let end = at;
 			while (end < blocks.length && isStep(blocks[end]!)) end++;
-			stretches.push({ start: at, end });
+			stretches.push({ start: at, end, steps: stepStarts(blocks, at, end).length });
 			at = end;
 		}
+		const most = (stretch: { end: number; steps: number }): number =>
+			stretch.end === blocks.length && context.working === true ? stretch.steps - 1 : stretch.steps;
 		const after = context.foldAfter ?? "auto";
 		if (after !== "auto") {
-			for (const { start, end } of stretches) {
-				const calls = blocks.slice(start, end).filter((step) => step.content.kind === "tool").length;
-				if (calls > after) folded.add(start);
+			for (const stretch of stretches) {
+				const fold = Math.min(most(stretch), Math.max(0, stretch.steps - after));
+				if (fold > 0) folds.set(stretch.start, fold);
 			}
-			return folded;
+			return folds;
 		}
 		const height = context.height ?? Number.POSITIVE_INFINITY;
 		const turns = [
@@ -181,17 +185,22 @@ export class Transcript {
 			blocks.length,
 		];
 		for (let turn = 0; turn + 1 < turns.length; turn++) {
-			const [from, to] = [turns[turn]!, turns[turn + 1]!];
-			for (const { start } of stretches.filter((stretch) => stretch.start >= from && stretch.start < to)) {
-				if (this.layout(context, folded, from, to).length <= height) break;
-				folded.add(start);
+			const from = turns[turn]!;
+			const inTurn = stretches.filter((stretch) => stretch.start >= from && stretch.start < turns[turn + 1]!);
+			const until = inTurn.at(-1)?.end;
+			if (until === undefined) continue;
+			const fits = (): boolean => this.layout(context, folds, from, until).length <= height;
+			for (const stretch of inTurn) {
+				while (!fits() && (folds.get(stretch.start) ?? 0) < most(stretch)) {
+					folds.set(stretch.start, (folds.get(stretch.start) ?? 0) + 1);
+				}
 			}
 		}
-		return folded;
+		return folds;
 	}
 
-	/** The lines of blocks `from` to `to`, the stretches in `folded` each as one line. */
-	private layout(context: RenderContext, folded: ReadonlySet<number>, from: number, to: number): Line[] {
+	/** The lines of blocks `from` to `to`, the first `folds` steps of each stretch as one line. */
+	private layout(context: RenderContext, folds: ReadonlyMap<number, number>, from: number, to: number): Line[] {
 		const out: Line[] = [];
 		let previous: BlockContent["kind"] | "steps" | undefined;
 		let edged = false;
@@ -206,24 +215,26 @@ export class Transcript {
 		const blocks = this.blocks;
 		for (let at = from; at < to; ) {
 			const block = blocks[at]!;
-			if (!folded.has(at)) {
+			const fold = folds.get(at) ?? 0;
+			if (fold === 0) {
 				emit(block.content.kind, block.render(context), isBoxed(block.content));
 				at++;
 				continue;
 			}
 			let end = at;
 			while (end < to && isStep(blocks[end]!)) end++;
-			const steps = blocks.slice(at, end);
-			const live = end === blocks.length && context.working === true;
-			const shown = live ? latestStep(steps) : steps.length;
-			const answer = live || end >= to ? undefined : answerAfter(blocks[end]);
-			// the calls still going beat in the line, where they will fold to
-			const going = steps.slice(shown).filter((step) => step.content.kind === "tool" && step.animated).length;
-			const summary = shown > 0 || answer !== undefined;
-			if (summary) emit("steps", stepsLine(steps.slice(0, shown), answer, going, context), false);
-			for (const step of steps.slice(shown)) {
-				emit(step.content.kind, step.render(context, summary ? "quiet" : undefined), false);
-			}
+			const starts = stepStarts(blocks, at, end);
+			const cut = fold >= starts.length ? end : starts[fold]!;
+			const shown = blocks.slice(cut, end);
+			const answer = cut === end && end < to ? answerAfter(blocks[end]) : undefined;
+			// a call going beats in the line, where it will fold to, when its step is all that is still shown
+			const going =
+				shown.length > 0 && stepStarts(blocks, cut, end).length === 1
+					? shown.filter((step) => step.content.kind === "tool" && step.animated).length
+					: 0;
+			emit("steps", stepsLine(blocks.slice(at, cut), answer, going, context), false);
+			for (const step of shown)
+				emit(step.content.kind, step.render(context, going > 0 ? "quiet" : undefined), false);
 			if (answer) {
 				emit("assistant", answer.render(context, "answer"), false);
 				at = end + 1;
@@ -243,12 +254,11 @@ function isStep(block: TranscriptBlock): boolean {
 	return !message.content.some((part) => part.type === "text" && part.text.trim() !== "");
 }
 
-/** Where the latest step begins: its reply, or else the first call still going; the steps before it fold. */
-function latestStep(steps: readonly TranscriptBlock[]): number {
-	const reply = steps.findLastIndex((step) => step.content.kind === "assistant");
-	if (reply >= 0) return reply;
-	const going = steps.findIndex((step) => step.animated);
-	return going >= 0 ? going : steps.length;
+/** Where each step of the stretch from `start` to `end` begins: at each reply, and at a call that opens it. */
+function stepStarts(blocks: readonly TranscriptBlock[], start: number, end: number): number[] {
+	const starts: number[] = [];
+	for (let at = start; at < end; at++) if (at === start || blocks[at]!.content.kind === "assistant") starts.push(at);
+	return starts;
 }
 
 /** The answer after a stretch of steps, when it thought first: that thinking joins the steps' line. */
