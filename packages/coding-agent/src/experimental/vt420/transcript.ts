@@ -151,13 +151,13 @@ export class Transcript {
 	 * How many steps of each stretch fold, by the stretch's first block. Once anything follows a stretch, a reply or the
 	 * user's next message, all of it folds; the one still going at the end keeps its latest `foldAfter` steps, or,
 	 * "auto", folds its oldest one at a time, as many as it takes for its turn, from the user's message on, to fit the
-	 * screen. While the model works, its latest step never folds.
+	 * screen. While the model works, its latest step never folds, nor the one before while the latest only thinks.
 	 */
 	private folding(context: RenderContext): Map<number, number> {
 		const folds = new Map<number, number>();
 		if (!context.foldSteps) return folds;
 		const blocks = this.blocks;
-		let last: { start: number; steps: number } | undefined;
+		let last: { start: number; steps: number; calling: boolean } | undefined;
 		for (let at = 0; at < blocks.length; ) {
 			if (!isStep(blocks[at]!)) {
 				at++;
@@ -165,13 +165,16 @@ export class Transcript {
 			}
 			let end = at;
 			while (end < blocks.length && isStep(blocks[end]!)) end++;
-			const steps = stepStarts(blocks, at, end).length;
+			const starts = stepStarts(blocks, at, end);
+			const steps = starts.length;
+			const calling = blocks.slice(starts.at(-1)!, end).some((step) => step.content.kind === "tool");
 			if (end < blocks.length) folds.set(at, steps);
-			else last = { start: at, steps };
+			else last = { start: at, steps, calling };
 			at = end;
 		}
 		if (!last) return folds;
-		const most = context.working === true ? last.steps - 1 : last.steps;
+		// while the model works its latest step stays open, and while that is still thinking, the step before it too
+		const most = context.working === true ? Math.max(0, last.steps - (last.calling ? 1 : 2)) : last.steps;
 		const after = context.foldAfter ?? "auto";
 		if (after !== "auto") {
 			const fold = Math.min(most, Math.max(0, last.steps - after));

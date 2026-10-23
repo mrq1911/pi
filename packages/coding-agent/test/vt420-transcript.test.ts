@@ -290,6 +290,34 @@ describe("vt420 transcript steps", () => {
 		expect(live[2]).toBe("∴ Thought for 3 sec");
 	});
 
+	it("keeps the step before open while the next one only thinks, and folds it once that one calls", () => {
+		const transcript = new Transcript();
+		transcript.add({ kind: "user", text: "fix the build" });
+		transcript.add({
+			kind: "assistant",
+			message: reply([{ type: "thinking", thinking: "look" }, call("bash", "make")]),
+			streaming: false,
+			thinkingTimes: new Map([[0, { since: 0, until: 12_000 }]]),
+		});
+		transcript.add({ kind: "tool", tool: { name: "bash", args: { command: "make" }, status: "done", output: "ok" } });
+		transcript.add({
+			kind: "assistant",
+			message: reply([{ type: "thinking", thinking: "so the build passes" }]),
+			streaming: true,
+			thinkingTimes: new Map([[0, { since: 0 }]]),
+		});
+		const thinking = shown(transcript, { foldAfter: 0, working: true });
+		expect(thinking[0]).toBe("∴ Thought for 12 sec");
+		expect(thinking.some((line) => line.startsWith("> make"))).toBe(true);
+		transcript.add({
+			kind: "tool",
+			tool: { name: "read", args: { path: "/work/a.ts" }, status: "pending", output: "" },
+		});
+		const calling = shown(transcript, { foldAfter: 0, working: true });
+		expect(calling[0]).toMatch(/^∴ 12 sec · > · *$/);
+		expect(calling.some((line) => line.startsWith("> make"))).toBe(false);
+	});
+
 	it("goes on in rows beneath when the glyphs do not fit one, under the first", () => {
 		const transcript = new Transcript();
 		transcript.add({ kind: "user", text: "read them all" });
