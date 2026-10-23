@@ -85,9 +85,10 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
   the calls ran. A step, one reply's thinking and its calls, folds into that line only as it takes, the oldest one at
   a time, for your latest message and the steps after it to fit on the screen; a long answer after them does not fold
   any more. `"foldAfter": 3` in `vt420.json`, or `/fold 3`, keeps instead the latest three steps of each stretch and
-  folds the older ones, `0` all of them, and `/fold auto` goes back. While the model works, the latest step shows in full beneath the line,
-  and a call still going beats, · ◆, in the line where it will fold to; glyphs that do not fit go on beneath. The live
-  view only ever scrolls up: what folds leaves its rows blank at the bottom, for what comes next to fill.
+  folds the older ones, `0` all of them, and `/fold auto` goes back. The line gives every step of the stretch, those
+  still in full beneath it too; while the model works its latest step is one of those, and a call still going beats,
+  · ◆, in its place in the line. Glyphs that do not fit go on beneath. The live view only ever scrolls up: what
+  folds leaves its rows blank at the bottom, for what comes next to fill.
   F17 (`/fold`) unfolds them all and folds them again; PF3 and PF4 show thinking and calls in full where unfolded.
 - **Bandwidth**: a diff renderer with relative cursor moves, IND/RI hardware scrolling inside DECSTBM margins, DCH to
   shift text that moved left within a line, ECH and DECFRA for long rules. A frame goes to a DEC terminal in

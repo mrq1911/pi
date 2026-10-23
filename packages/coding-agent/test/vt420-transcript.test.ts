@@ -237,8 +237,8 @@ describe("vt420 transcript steps", () => {
 
 	it("keeps the latest step in full while the model works, beneath the ones done", () => {
 		const lines = shown(stretch({ running: true }), { working: true });
-		// the call going beats where it will fold to, and its own line keeps only its time
-		expect(lines[0]).toBe(`∴ 12 sec · >× ·${" ".repeat(23)}1s`);
+		// the line gives the whole stretch, the call going beating in it, and its own line keeps only its time
+		expect(lines[0]).toBe(`∴ 15 sec · >× ·${" ".repeat(23)}1s`);
 		expect(lines[1]).toBe("");
 		expect(lines[2]).toBe("∴ Thought for 3 sec");
 		expect(lines[3]).toBe("↑ a.ts");
@@ -246,15 +246,15 @@ describe("vt420 transcript steps", () => {
 
 	it("folds a stretch's oldest steps, all but its latest N, or, auto, as many as its turn needs to fit", () => {
 		const finished = stretch(undefined);
-		// two steps: 1 keeps the latest, 2 both
+		// two steps: 1 keeps the latest, 2 both; the line gives them all, those still shown too
 		const one = shown(finished, { foldAfter: 1 });
-		expect(one[0]).toMatch(/^∴ 12 sec · >× +1s$/);
+		expect(one[0]).toMatch(/^∴ 15 sec · >× ↑ +3s$/);
 		expect(one.slice(1, 3)).toEqual(["", "∴ Thought for 3 sec"]);
 		expect(shown(finished, { foldAfter: 2 })[0]).toBe("∴ Thought for 12 sec");
 		// auto: the message box and the steps take 9 rows, the answer after them does not count
 		expect(shown(finished, { foldAfter: "auto", height: 9 })[0]).toBe("∴ Thought for 12 sec");
 		const oldest = shown(finished, { foldAfter: "auto", height: 8 });
-		expect(oldest[0]).toMatch(/^∴ 12 sec · >× +1s$/);
+		expect(oldest[0]).toMatch(/^∴ 15 sec · >× ↑ +3s$/);
 		expect(oldest[2]).toBe("∴ Thought for 3 sec");
 		expect(shown(finished, { foldAfter: "auto", height: 6 })[0]).toMatch(/^∴ 20 sec · >× ↑ +3s$/);
 		// however long the answer, the steps before it stay as the turn had them
@@ -264,7 +264,7 @@ describe("vt420 transcript steps", () => {
 		expect(shown(long, { foldAfter: "auto", height: 9 })[0]).toBe("∴ Thought for 12 sec");
 		// a turn still going folds its oldest steps once it no longer fits, and keeps the latest
 		const live = shown(stretch({ running: true }), { foldAfter: "auto", height: 8, working: true });
-		expect(live[0]).toMatch(/^∴ 12 sec · >× · +1s$/);
+		expect(live[0]).toMatch(/^∴ 15 sec · >× · +1s$/);
 		expect(live[2]).toBe("∴ Thought for 3 sec");
 	});
 

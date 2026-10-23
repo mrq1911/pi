@@ -227,14 +227,9 @@ export class Transcript {
 			const cut = fold >= starts.length ? end : starts[fold]!;
 			const shown = blocks.slice(cut, end);
 			const answer = cut === end && end < to ? answerAfter(blocks[end]) : undefined;
-			// a call going beats in the line, where it will fold to, when its step is all that is still shown
-			const going =
-				shown.length > 0 && stepStarts(blocks, cut, end).length === 1
-					? shown.filter((step) => step.content.kind === "tool" && step.animated).length
-					: 0;
-			emit("steps", stepsLine(blocks.slice(at, cut), answer, going, context), false);
-			for (const step of shown)
-				emit(step.content.kind, step.render(context, going > 0 ? "quiet" : undefined), false);
+			// the line gives the whole stretch, the steps still shown in full beneath it too, a call going beating in it
+			emit("steps", stepsLine(blocks.slice(at, end), answer, context), false);
+			for (const step of shown) emit(step.content.kind, step.render(context, "quiet"), false);
 			if (answer) {
 				emit("assistant", answer.render(context, "answer"), false);
 				at = end + 1;
@@ -270,13 +265,12 @@ function answerAfter(block: TranscriptBlock | undefined): TranscriptBlock | unde
 }
 
 /**
- * "∴ 32 sec · $ ↑ ↑ $× Δ" with how long the calls ran on the right; × marks a call that failed, and a heartbeat each
- * call still `going`. Glyphs that do not fit go on in rows beneath, under the first.
+ * "∴ 32 sec · > ↑ ↑ >× Δ" with how long the calls ran on the right; × marks a call that failed, and a heartbeat one
+ * still going. Glyphs that do not fit go on in rows beneath, under the first.
  */
 function stepsLine(
 	steps: readonly TranscriptBlock[],
 	answer: TranscriptBlock | undefined,
-	going: number,
 	context: RenderContext,
 ): Line[] {
 	const { charset, width } = context;
@@ -291,7 +285,8 @@ function stepsLine(
 			if (part.type !== "thinking") continue;
 			thought = true;
 			const time = content.thinkingTimes?.get(index);
-			if (time?.until !== undefined) thinkingMs += time.until - time.since;
+			// thinking still going counts up to now
+			if (time) thinkingMs += (time.until ?? context.now) - time.since;
 			else timed = false;
 			const counted = thinkingTokens(content.message, index);
 			tokens += counted?.count ?? 0;
@@ -303,6 +298,7 @@ function stepsLine(
 	for (const step of steps) {
 		const content = step.content;
 		if (content.kind === "assistant") think(content, content.message.content.length);
+		else if (content.kind === "tool" && step.animated) glyphs.push(HEARTBEAT[context.tick % HEARTBEAT.length]!);
 		else if (content.kind === "tool") {
 			const { tool } = content;
 			const glyph = TOOL_GLYPHS[tool.name] ?? "ƒ";
@@ -327,7 +323,6 @@ function stepsLine(
 			: tokens > 0
 				? `${marker} ${about}${formatTokens(tokens)} token${tokens === 1 ? "" : "s"}`
 				: marker;
-	for (let call = 0; call < going; call++) glyphs.push(HEARTBEAT[context.tick % HEARTBEAT.length]!);
 	const status = charset.cells(finishedStatus("", "", ranMs));
 	const lead = charset.cells(thinking ? `${thinking}${glyphs.length > 0 ? " · " : ""}` : "");
 	const calls = charset.cells(glyphs.join(" "));
