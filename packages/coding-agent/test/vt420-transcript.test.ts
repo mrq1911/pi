@@ -244,31 +244,11 @@ describe("vt420 transcript steps", () => {
 		expect(lines[3]).toBe("↑ a.ts");
 	});
 
-	it("folds a stretch's oldest steps, all but its latest N, or, auto, as many as its turn needs to fit", () => {
-		const finished = stretch(undefined);
-		// two steps: 1 keeps the latest, 2 both; the line gives them all, those still shown too
-		const one = shown(finished, { foldAfter: 1 });
-		expect(one[0]).toMatch(/^∴ 15 sec · >× ↑ +3s$/);
-		expect(one.slice(1, 3)).toEqual(["", "∴ Thought for 3 sec"]);
-		expect(shown(finished, { foldAfter: 2 })[0]).toBe("∴ Thought for 12 sec");
-		// auto: the message box and the steps take 9 rows, the answer after them does not count
-		expect(shown(finished, { foldAfter: "auto", height: 9 })[0]).toBe("∴ Thought for 12 sec");
-		const oldest = shown(finished, { foldAfter: "auto", height: 8 });
-		expect(oldest[0]).toMatch(/^∴ 15 sec · >× ↑ +3s$/);
-		expect(oldest[2]).toBe("∴ Thought for 3 sec");
-		expect(shown(finished, { foldAfter: "auto", height: 6 })[0]).toMatch(/^∴ 20 sec · >× ↑ +3s$/);
-		// however long the answer, the steps before it stay as the turn had them
-		const long = stretch(undefined);
-		const text = Array.from({ length: 30 }, (_, i) => `line ${i}`).join("\n\n");
-		long.add({ kind: "assistant", message: reply([{ type: "text", text }]), streaming: false });
-		expect(shown(long, { foldAfter: "auto", height: 9 })[0]).toBe("∴ Thought for 12 sec");
-		// a turn still going folds its oldest steps once it no longer fits, and keeps the latest
-		const live = shown(stretch({ running: true }), { foldAfter: "auto", height: 8, working: true });
-		expect(live[0]).toMatch(/^∴ 15 sec · >× · +1s$/);
-		expect(live[2]).toBe("∴ Thought for 3 sec");
-	});
-
-	it("folds a turn's oldest stretch first, and only as many as it takes to fit", () => {
+	it("folds a stretch whole once a reply follows it, whatever room there is", () => {
+		for (const view of [{ foldAfter: 2 }, { foldAfter: "auto" as const, height: 100 }]) {
+			expect(shown(stretch(undefined), view)[0]).toMatch(/^∴ 20 sec · >× ↑ +3s$/);
+		}
+		// an earlier stretch folds as the reply after it comes, the one at the end stays open while it fits
 		const transcript = new Transcript();
 		transcript.add({ kind: "user", text: "fix the build" });
 		transcript.add({
@@ -277,10 +257,7 @@ describe("vt420 transcript steps", () => {
 			streaming: false,
 			thinkingTimes: new Map([[0, { since: 0, until: 2000 }]]),
 		});
-		transcript.add({
-			kind: "tool",
-			tool: { name: "bash", args: { command: "make" }, status: "done", output: "a\nb\nc" },
-		});
+		transcript.add({ kind: "tool", tool: { name: "bash", args: { command: "make" }, status: "done", output: "" } });
 		transcript.add({
 			kind: "assistant",
 			message: reply([{ type: "text", text: "Now the tests." }, call("read", "a.ts")]),
@@ -290,12 +267,27 @@ describe("vt420 transcript steps", () => {
 			kind: "tool",
 			tool: { name: "read", args: { path: "/work/a.ts" }, status: "done", output: "" },
 		});
-		transcript.add({ kind: "assistant", message: reply([{ type: "text", text: "All good." }]), streaming: false });
-		// 13 rows unfolded; folding the first stretch alone brings the turn to 9
-		const lines = shown(transcript, { foldAfter: "auto", height: 10 });
+		const lines = shown(transcript, { foldAfter: "auto", height: 100 });
 		expect(lines[0]).toMatch(/^∴ 2 sec · > *$/);
 		expect(lines).toContain("Now the tests.");
 		expect(lines.some((line) => line.startsWith("↑ a.ts"))).toBe(true);
+	});
+
+	it("keeps open the latest steps of the stretch at the end, N of them, or, auto, as many as its turn fits", () => {
+		const open = stretch({ running: false });
+		// two steps: 1 keeps the latest, 2 both; the line gives them all, those still open too
+		const one = shown(open, { foldAfter: 1 });
+		expect(one[0]).toMatch(/^∴ 15 sec · >× ↑ +3s$/);
+		expect(one.slice(1, 3)).toEqual(["", "∴ Thought for 3 sec"]);
+		expect(shown(open, { foldAfter: 2 })[0]).toBe("∴ Thought for 12 sec");
+		// auto: the message box and the steps take 9 rows
+		expect(shown(open, { foldAfter: "auto", height: 9 })[0]).toBe("∴ Thought for 12 sec");
+		expect(shown(open, { foldAfter: "auto", height: 8 }).slice(0, 3)).toEqual(one.slice(0, 3));
+		expect(shown(open, { foldAfter: "auto", height: 4 })[0]).toMatch(/^∴ 15 sec · >× ↑ +3s$/);
+		// while the model works the latest step stays open, however little room
+		const live = shown(stretch({ running: true }), { foldAfter: "auto", height: 4, working: true });
+		expect(live[0]).toMatch(/^∴ 15 sec · >× · +1s$/);
+		expect(live[2]).toBe("∴ Thought for 3 sec");
 	});
 
 	it("goes on in rows beneath when the glyphs do not fit one, under the first", () => {

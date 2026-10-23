@@ -82,13 +82,12 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
   A call that ran a second or more says for how long beside its √ or ×, in a resumed session too. A stretch of
   thinking and calls with no text between folds into one line, `∴ 32 sec · > ↑ ↑ >× Δ   1m 05s`: how long it
   thought, the answer's thinking after it included, a glyph for each call in order, × on one that failed, and how long
-  the calls ran. A step, one reply's thinking and its calls, folds into that line only as it takes, the oldest one at
-  a time, for your latest message and the steps after it to fit on the screen; a long answer after them does not fold
-  any more. `"foldAfter": 3` in `vt420.json`, or `/fold 3`, keeps instead the latest three steps of each stretch and
-  folds the older ones, `0` all of them, and `/fold auto` goes back. The line gives every step of the stretch, those
-  still in full beneath it too; while the model works its latest step is one of those, and a call still going beats,
-  · ◆, in its place in the line. Glyphs that do not fit go on beneath. The live view only ever scrolls up: what
-  folds leaves its rows blank at the bottom, for what comes next to fill.
+  the calls ran. A stretch folds as soon as anything follows it. The one still going at the end folds only its oldest
+  steps, a step being one reply's thinking and calls, as many as it takes for your latest message and all after it to
+  fit on the screen, while the line above them lists them all, a call still going beating, · ◆, in its place;
+  `"foldAfter": 3` in `vt420.json`, or `/fold 3`, keeps instead its latest three steps open, `0` none, and `/fold auto`
+  goes back. Glyphs that do not fit go on beneath. The live view only ever scrolls up: what folds leaves its rows blank
+  at the bottom, for what comes next to fill.
   F17 (`/fold`) unfolds them all and folds them again; PF3 and PF4 show thinking and calls in full where unfolded.
 - **Bandwidth**: a diff renderer with relative cursor moves, IND/RI hardware scrolling inside DECSTBM margins, DCH to
   shift text that moved left within a line, ECH and DECFRA for long rules. A frame goes to a DEC terminal in

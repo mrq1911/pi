@@ -46,7 +46,7 @@ interface Vt420Config {
 	intro?: boolean;
 	screensaver?: "auto" | "off" | "blank" | "progress" | "matrix";
 	screensaverMinutes?: number;
-	/** How many latest steps of a stretch stay unfolded, the older folding, or "auto": as many as fit the screen. */
+	/** How many latest steps of the stretch going on stay open, or "auto": as many as fit the screen. */
 	foldAfter?: "auto" | number;
 }
 

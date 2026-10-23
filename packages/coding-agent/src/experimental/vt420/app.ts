@@ -147,7 +147,7 @@ export interface Vt420AppOptions {
 	screensaver?: SaverMode | "auto";
 	screensaverMinutes?: number;
 	saverMoveMs?: number;
-	/** How many latest steps of a stretch stay unfolded, the older folding, or "auto": as many as fit the screen. */
+	/** How many latest steps of the stretch going on stay open, or "auto": as many as fit the screen. */
 	foldAfter?: FoldAfter;
 	/** Keep settings changed by a command, such as /screensaver. */
 	saveSettings?(settings: { screensaver?: SaverMode; screensaverMinutes?: number; foldAfter?: FoldAfter }): void;
@@ -1087,7 +1087,7 @@ export class Vt420App {
 		this.flash(
 			after === "auto"
 				? "Folding the oldest steps as the screen needs"
-				: `Keeping the latest ${after} step${after === 1 ? "" : "s"} of each stretch unfolded`,
+				: `Keeping the latest ${after} step${after === 1 ? "" : "s"} open`,
 		);
 	}
 

@@ -30,7 +30,7 @@ export interface RenderContext {
 	expandTools: boolean;
 	/** Stretches of the model's steps fold into one line each. */
 	foldSteps: boolean;
-	/** How many steps of a stretch stay unfolded, the latest, or "auto": as many as each turn fits in `height` rows. */
+	/** How many latest steps of the stretch at the end stay unfolded, or "auto": as many as fit `height` rows. */
 	foldAfter?: FoldAfter;
 	/** Rows the transcript has on the screen. */
 	height?: number;
@@ -66,7 +66,7 @@ export interface BashState {
 
 export type ThinkingTimes = Map<number, { since: number; until?: number }>;
 
-/** How many of a stretch's latest steps stay unfolded, or "auto": as many as fit the screen with the user's message. */
+/** How many latest steps of the stretch going on stay unfolded, or "auto": as many as fit the screen with its turn. */
 export type FoldAfter = "auto" | number;
 
 export type BlockContent =
@@ -148,16 +148,16 @@ export class Transcript {
 	}
 
 	/**
-	 * How many steps of each stretch fold, by the stretch's first block: all but the latest `foldAfter`, or, "auto", in
-	 * each turn, from one of the user's messages to the next, the oldest one at a time, as many as it takes for the
-	 * message and the steps after it to fit the screen; an answer after the last of them does not fold any more.
-	 * While the model works, its latest step never folds.
+	 * How many steps of each stretch fold, by the stretch's first block. Once anything follows a stretch, a reply or the
+	 * user's next message, all of it folds; the one still going at the end keeps its latest `foldAfter` steps, or,
+	 * "auto", folds its oldest one at a time, as many as it takes for its turn, from the user's message on, to fit the
+	 * screen. While the model works, its latest step never folds.
 	 */
 	private folding(context: RenderContext): Map<number, number> {
 		const folds = new Map<number, number>();
 		if (!context.foldSteps) return folds;
 		const blocks = this.blocks;
-		const stretches: Array<{ start: number; end: number; steps: number }> = [];
+		let last: { start: number; steps: number } | undefined;
 		for (let at = 0; at < blocks.length; ) {
 			if (!isStep(blocks[at]!)) {
 				at++;
@@ -165,37 +165,24 @@ export class Transcript {
 			}
 			let end = at;
 			while (end < blocks.length && isStep(blocks[end]!)) end++;
-			stretches.push({ start: at, end, steps: stepStarts(blocks, at, end).length });
+			const steps = stepStarts(blocks, at, end).length;
+			if (end < blocks.length) folds.set(at, steps);
+			else last = { start: at, steps };
 			at = end;
 		}
-		const most = (stretch: { end: number; steps: number }): number =>
-			stretch.end === blocks.length && context.working === true ? stretch.steps - 1 : stretch.steps;
+		if (!last) return folds;
+		const most = context.working === true ? last.steps - 1 : last.steps;
 		const after = context.foldAfter ?? "auto";
 		if (after !== "auto") {
-			for (const stretch of stretches) {
-				const fold = Math.min(most(stretch), Math.max(0, stretch.steps - after));
-				if (fold > 0) folds.set(stretch.start, fold);
-			}
+			const fold = Math.min(most, Math.max(0, last.steps - after));
+			if (fold > 0) folds.set(last.start, fold);
 			return folds;
 		}
 		const height = context.height ?? Number.POSITIVE_INFINITY;
-		const turns = [
-			0,
-			...blocks.flatMap((block, at) => (block.content.kind === "user" && at > 0 ? [at] : [])),
-			blocks.length,
-		];
-		for (let turn = 0; turn + 1 < turns.length; turn++) {
-			const from = turns[turn]!;
-			const inTurn = stretches.filter((stretch) => stretch.start >= from && stretch.start < turns[turn + 1]!);
-			const until = inTurn.at(-1)?.end;
-			if (until === undefined) continue;
-			const fits = (): boolean => this.layout(context, folds, from, until).length <= height;
-			for (const stretch of inTurn) {
-				while (!fits() && (folds.get(stretch.start) ?? 0) < most(stretch)) {
-					folds.set(stretch.start, (folds.get(stretch.start) ?? 0) + 1);
-				}
-			}
-		}
+		let from = last.start;
+		while (from > 0 && blocks[from]!.content.kind !== "user") from--;
+		const fits = (): boolean => this.layout(context, folds, from, blocks.length).length <= height;
+		while (!fits() && (folds.get(last.start) ?? 0) < most) folds.set(last.start, (folds.get(last.start) ?? 0) + 1);
 		return folds;
 	}
 
