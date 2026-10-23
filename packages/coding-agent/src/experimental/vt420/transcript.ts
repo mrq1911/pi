@@ -30,6 +30,10 @@ export interface RenderContext {
 	expandTools: boolean;
 	/** Stretches of the model's steps fold into one line each. */
 	foldSteps: boolean;
+	/** When a stretch folds: past this many calls, or "auto", as it takes for each turn to fit `height` rows. */
+	foldAfter?: FoldAfter;
+	/** Rows the transcript has on the screen. */
+	height?: number;
 	largeHeadings: boolean;
 	tick: number;
 	now: number;
@@ -61,6 +65,9 @@ export interface BashState {
 }
 
 export type ThinkingTimes = Map<number, { since: number; until?: number }>;
+
+/** How many calls a stretch of steps may have before it folds, or "auto": as needed for the turn to fit the screen. */
+export type FoldAfter = "auto" | number;
 
 export type BlockContent =
 	| { kind: "user"; text: string }
@@ -129,41 +136,86 @@ export class Transcript {
 
 	/**
 	 * All transcript lines, with one blank line between turns. Tool blocks attach to the turn above them, and a
-	 * boxed message's edges take the place of the blank lines around it. Unless F17 unfolds them, each stretch
-	 * of the model's steps, thinking and calls with no text between, folds into one line, the thinking of the answer
-	 * after it too; while the model works, the latest step stays in full beneath the line.
+	 * boxed message's edges take the place of the blank lines around it. Unless F17 unfolds them, a stretch of the
+	 * model's steps, thinking and calls with no text between, folds into one line when `foldAfter` says, the thinking of
+	 * the answer after it too; while the model works, the latest step stays in full beneath the line.
 	 */
 	lines(context: RenderContext): Line[] {
-		const out: Line[] = [];
-		let previous: BlockContent["kind"] | "steps" | undefined;
-		let edged = false;
-		const emit = (kind: BlockContent["kind"] | "steps", lines: Line[], boxed: boolean, step = false): void => {
-			if (lines.length === 0) return;
-			const attached =
-				(kind === "tool" && (previous === "tool" || previous === "assistant" || previous === "steps")) ||
-				(step && previous === "steps");
-			if (out.length > 0 && !attached && !boxed && !edged) out.push({ cells: [], attr: LINE_SINGLE });
-			for (const line of lines) out.push(line);
-			previous = kind;
-			edged = boxed;
-		};
-		const fold = context.foldSteps;
+		return this.layout(context, this.folding(context), 0, this.blocks.length);
+	}
+
+	/**
+	 * The stretches that fold, by their first step: past `foldAfter` calls each, or, "auto", in each turn, from one of
+	 * the user's messages to the next, as many as it takes, oldest first, for the turn to fit the screen.
+	 */
+	private folding(context: RenderContext): Set<number> {
+		const folded = new Set<number>();
+		if (!context.foldSteps) return folded;
 		const blocks = this.blocks;
+		const stretches: Array<{ start: number; end: number }> = [];
 		for (let at = 0; at < blocks.length; ) {
-			const block = blocks[at]!;
-			if (!fold || !isStep(block)) {
-				emit(block.content.kind, block.render(context), isBoxed(block.content));
+			if (!isStep(blocks[at]!)) {
 				at++;
 				continue;
 			}
 			let end = at;
 			while (end < blocks.length && isStep(blocks[end]!)) end++;
+			stretches.push({ start: at, end });
+			at = end;
+		}
+		const after = context.foldAfter ?? "auto";
+		if (after !== "auto") {
+			for (const { start, end } of stretches) {
+				const calls = blocks.slice(start, end).filter((step) => step.content.kind === "tool").length;
+				if (calls > after) folded.add(start);
+			}
+			return folded;
+		}
+		const height = context.height ?? Number.POSITIVE_INFINITY;
+		const turns = [
+			0,
+			...blocks.flatMap((block, at) => (block.content.kind === "user" && at > 0 ? [at] : [])),
+			blocks.length,
+		];
+		for (let turn = 0; turn + 1 < turns.length; turn++) {
+			const [from, to] = [turns[turn]!, turns[turn + 1]!];
+			for (const { start } of stretches.filter((stretch) => stretch.start >= from && stretch.start < to)) {
+				if (this.layout(context, folded, from, to).length <= height) break;
+				folded.add(start);
+			}
+		}
+		return folded;
+	}
+
+	/** The lines of blocks `from` to `to`, the stretches in `folded` each as one line. */
+	private layout(context: RenderContext, folded: ReadonlySet<number>, from: number, to: number): Line[] {
+		const out: Line[] = [];
+		let previous: BlockContent["kind"] | "steps" | undefined;
+		let edged = false;
+		const emit = (kind: BlockContent["kind"] | "steps", lines: Line[], boxed: boolean): void => {
+			if (lines.length === 0) return;
+			const attached = kind === "tool" && (previous === "tool" || previous === "assistant" || previous === "steps");
+			if (out.length > 0 && !attached && !boxed && !edged) out.push({ cells: [], attr: LINE_SINGLE });
+			for (const line of lines) out.push(line);
+			previous = kind;
+			edged = boxed;
+		};
+		const blocks = this.blocks;
+		for (let at = from; at < to; ) {
+			const block = blocks[at]!;
+			if (!folded.has(at)) {
+				emit(block.content.kind, block.render(context), isBoxed(block.content));
+				at++;
+				continue;
+			}
+			let end = at;
+			while (end < to && isStep(blocks[end]!)) end++;
 			const steps = blocks.slice(at, end);
 			const live = end === blocks.length && context.working === true;
-			const folded = live ? latestStep(steps) : steps.length;
-			const answer = live ? undefined : answerAfter(blocks[end]);
-			if (folded > 0 || answer) emit("steps", [stepsLine(steps.slice(0, folded), answer, context)], false);
-			for (const step of steps.slice(folded)) emit(step.content.kind, step.render(context), false, true);
+			const shown = live ? latestStep(steps) : steps.length;
+			const answer = live || end >= to ? undefined : answerAfter(blocks[end]);
+			if (shown > 0 || answer) emit("steps", [stepsLine(steps.slice(0, shown), answer, context)], false);
+			for (const step of steps.slice(shown)) emit(step.content.kind, step.render(context), false);
 			if (answer) {
 				emit("assistant", answer.render(context, true), false);
 				at = end + 1;

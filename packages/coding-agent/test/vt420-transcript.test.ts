@@ -29,6 +29,7 @@ function context(showThinking = false): RenderContext {
 		showThinking,
 		expandTools: false,
 		foldSteps: true,
+		foldAfter: 0,
 		largeHeadings: true,
 		tick: 0,
 		now: 0,
@@ -237,8 +238,53 @@ describe("vt420 transcript steps", () => {
 	it("keeps the latest step in full while the model works, beneath the ones done", () => {
 		const lines = shown(stretch({ running: true }), { working: true });
 		expect(lines[0]).toBe(`∴ 12 sec · $×${" ".repeat(25)}1s`);
-		expect(lines[1]).toBe("∴ Thought for 3 sec");
-		expect(lines[2]).toMatch(/^↑ a\.ts +·$/);
+		expect(lines[1]).toBe("");
+		expect(lines[2]).toBe("∴ Thought for 3 sec");
+		expect(lines[3]).toMatch(/^↑ a\.ts +·$/);
+	});
+
+	it("folds a stretch past the calls it may have, or, auto, as it takes for the turn to fit the screen", () => {
+		const finished = stretch(undefined);
+		// two calls: one too many for 1, few enough for 2
+		expect(shown(finished, { foldAfter: 1 })[0]).toMatch(/^∴ 20 sec · \$× ↑ +3s$/);
+		expect(shown(finished, { foldAfter: 2 })[0]).toBe("∴ Thought for 12 sec");
+		// auto: the turn, the message box and all after it, takes 13 rows unfolded: it fits 13, not 12
+		expect(shown(finished, { foldAfter: "auto", height: 13 })[0]).toBe("∴ Thought for 12 sec");
+		expect(shown(finished, { foldAfter: "auto", height: 12 })[0]).toMatch(/^∴ 20 sec · \$× ↑ +3s$/);
+		// a turn still going folds the steps done once it no longer fits, and keeps the latest
+		const live = shown(stretch({ running: true }), { foldAfter: "auto", height: 8, working: true });
+		expect(live[0]).toMatch(/^∴ 12 sec · \$× +1s$/);
+		expect(live[2]).toBe("∴ Thought for 3 sec");
+	});
+
+	it("folds a turn's oldest stretch first, and only as many as it takes to fit", () => {
+		const transcript = new Transcript();
+		transcript.add({ kind: "user", text: "fix the build" });
+		transcript.add({
+			kind: "assistant",
+			message: reply([{ type: "thinking", thinking: "look" }, call("bash", "make")]),
+			streaming: false,
+			thinkingTimes: new Map([[0, { since: 0, until: 2000 }]]),
+		});
+		transcript.add({
+			kind: "tool",
+			tool: { name: "bash", args: { command: "make" }, status: "done", output: "a\nb\nc" },
+		});
+		transcript.add({
+			kind: "assistant",
+			message: reply([{ type: "text", text: "Now the tests." }, call("read", "a.ts")]),
+			streaming: false,
+		});
+		transcript.add({
+			kind: "tool",
+			tool: { name: "read", args: { path: "/work/a.ts" }, status: "done", output: "" },
+		});
+		transcript.add({ kind: "assistant", message: reply([{ type: "text", text: "All good." }]), streaming: false });
+		// 13 rows unfolded; folding the first stretch alone brings the turn to 9
+		const lines = shown(transcript, { foldAfter: "auto", height: 10 });
+		expect(lines[0]).toMatch(/^∴ 2 sec · \$ *$/);
+		expect(lines).toContain("Now the tests.");
+		expect(lines.some((line) => line.startsWith("↑ a.ts"))).toBe(true);
 	});
 
 	it("shows every step again unfolded, and PF3 or PF4 alone leave them folded", () => {

@@ -82,8 +82,10 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
   A call that ran a second or more says for how long beside its √ or ×, in a resumed session too. A stretch of
   thinking and calls with no text between folds into one line, `∴ 32 sec · $ ↑ ↑ $× Δ   1m 05s`: how long it
   thought, the answer's thinking after it included, a glyph for each call in order, × on one that failed, and how long
-  the calls ran. While the model works, the latest step shows in full beneath that line. F17 (`/fold`) unfolds them
-  all and folds them again; PF3 and PF4 show thinking and calls in full wherever they are not folded.
+  the calls ran. Stretches fold only as it takes, oldest first, for your latest message and all after it to fit on
+  the screen; `"foldAfter": 3` in `vt420.json`, or `/fold 3`, folds instead every stretch of more than three calls,
+  `0` every one, and `/fold auto` goes back. While the model works, the latest step shows in full beneath the line.
+  F17 (`/fold`) unfolds them all and folds them again; PF3 and PF4 show thinking and calls in full where unfolded.
 - **Bandwidth**: a diff renderer with relative cursor moves, IND/RI hardware scrolling inside DECSTBM margins, DCH to
   shift text that moved left within a line, ECH and DECFRA for long rules. A frame goes to a DEC terminal in
   pieces of 96 bytes at most, each ending with a DSR request (DA1 where the terminal ignores DSR), and pieces go out
@@ -168,7 +170,8 @@ the LK401's F14 to F20, Help and Do on, count as those keys. Every binding can b
 `/compact [focus]`, `/session`, `/name [name]`, `/settings`, `/scoped-models`, `/login [provider]`,
 `/logout [provider]`, `/trust`, `/copy`, `/share`, `/bug [what went wrong]`,
 `/export [path]` (HTML, or JSONL for a `.jsonl` path), `/changelog`, `/reload`, `/charset`, `/redraw`,
-`/fold`, `/thoughts`, `/expand` and `/scroll` (each `[on|off]`, as their keys switch them),
+`/fold`, `/thoughts`, `/expand` and `/scroll` (each `[on|off]`, as their keys switch them; `/fold auto|<calls>` sets
+when stretches fold),
 `/screensaver [off|blank|progress|matrix] [minutes]`, `/quit` (or `/q`). `/copy` uses OSC 52 on an emulator and the desktop
 clipboard on a host that has one; a VT420 has neither. `/settings` has pi's settings that apply here (auto-compact,
 steering and follow-up modes, thinking per model, transport, HTTP idle timeout, cache warming, images, skill commands,

@@ -87,6 +87,7 @@ import { type Phase, SCOPE_FONT, traceCells } from "./scope.ts";
 import { SpeedMeter } from "./speed.ts";
 import {
 	type BashState,
+	type FoldAfter,
 	type RenderContext,
 	type ThinkingTimes,
 	type ToolState,
@@ -146,8 +147,10 @@ export interface Vt420AppOptions {
 	screensaver?: SaverMode | "auto";
 	screensaverMinutes?: number;
 	saverMoveMs?: number;
+	/** How many calls a stretch of thinking and calls may have before it folds, or "auto": as long as it fits. */
+	foldAfter?: FoldAfter;
 	/** Keep settings changed by a command, such as /screensaver. */
-	saveSettings?(settings: { screensaver: SaverMode; screensaverMinutes: number }): void;
+	saveSettings?(settings: { screensaver?: SaverMode; screensaverMinutes?: number; foldAfter?: FoldAfter }): void;
 }
 
 /** Longest working directory the footer shows; longer ones shrink to their last component. */
@@ -230,7 +233,7 @@ export const COMMANDS: readonly CommandInfo[] = [
 	{ name: "reload", description: "reload skills, prompts and context files" },
 	{ name: "charset", description: "show every VT420 glyph" },
 	{ name: "redraw", description: "repaint the screen" },
-	{ name: "fold", args: "[on|off]", description: "fold thinking and calls into one line, or show them" },
+	{ name: "fold", args: "[on|off|auto|calls]", description: "fold thinking and calls into one line, and when" },
 	{ name: "thoughts", args: "[on|off]", description: "show or hide the thinking text" },
 	{ name: "expand", args: "[on|off]", description: "show tool calls in full, or one line each" },
 	{ name: "scroll", args: "[on|off]", description: "Up, Down and the wheel scroll the transcript" },
@@ -375,8 +378,9 @@ export class Vt420App {
 	private transcriptLength = 0;
 	private showThinking = false;
 	private expandTools = false;
-	/** Stretches of thinking and calls fold into one line each. */
+	/** Stretches of thinking and calls fold into one line each, once past `foldAfter`. */
 	private foldSteps = true;
+	private foldAfter: FoldAfter;
 	private tick = 0;
 	private working = false;
 	private workingSince = 0;
@@ -466,6 +470,8 @@ export class Vt420App {
 		this.saverHere = !caps.unicode && caps.level >= 4;
 		this.footerInTitle = caps.unicode && !caps.statusLine && behindVt420() !== undefined;
 		this.saverMinutes = options.screensaverMinutes ?? SAVER_MINUTES;
+		const after = options.foldAfter;
+		this.foldAfter = typeof after === "number" && Number.isInteger(after) && after >= 0 ? after : "auto";
 		this.extensionUI = createExtensionUI({
 			select: (title, items, signal) => this.dialogSelect(title, items, signal),
 			input: (title, initial, signal) => this.dialogInput(title, initial, signal),
@@ -1069,6 +1075,18 @@ export class Vt420App {
 		this.flash(on ? "Folded thinking and calls" : "Unfolded thinking and calls");
 	}
 
+	/** When stretches fold, kept in vt420.json for next time; folding goes on with it. */
+	private setFoldAfter(after: FoldAfter): void {
+		this.foldAfter = after;
+		this.foldSteps = true;
+		this.options.saveSettings?.({ foldAfter: after });
+		this.flash(
+			after === "auto"
+				? "Folding thinking and calls that do not fit the screen"
+				: `Folding thinking and calls past ${after} call${after === 1 ? "" : "s"}`,
+		);
+	}
+
 	/** The messages waiting for the model back in the input, out of the queue, ahead of what it holds, as pi does. */
 	private editQueued(): void {
 		const { steering, followUp } = this.session.clearQueue();
@@ -1347,7 +1365,10 @@ export class Vt420App {
 				this.redraw();
 				return true;
 			case "fold":
-				this.switchCommand(name, args, this.foldSteps, (on) => this.setFold(on));
+				if (args === "auto" || /^\d+$/.test(args)) this.setFoldAfter(args === "auto" ? "auto" : Number(args));
+				else if (args === "" || args === "on" || args === "off")
+					this.switchCommand(name, args, this.foldSteps, (on) => this.setFold(on));
+				else this.notice("warning", "Usage: /fold [on|off|auto|<calls>]");
 				return true;
 			case "thoughts":
 				this.switchCommand(name, args, this.showThinking, (on) => this.setThinkingShown(on));
@@ -2851,6 +2872,8 @@ export class Vt420App {
 			showThinking: this.showThinking,
 			expandTools: this.expandTools,
 			foldSteps: this.foldSteps,
+			foldAfter: this.foldAfter,
+			height: this.regionHeight,
 			// letter-spaced headings read badly, so without double size they stay at normal size
 			largeHeadings: (this.options.largeHeadings ?? true) && this.io.caps.doubleSize !== false,
 			tick: this.tick,

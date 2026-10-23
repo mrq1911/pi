@@ -472,7 +472,7 @@ describe("vt420 app", () => {
 			}),
 			fauxAssistantMessage("done"),
 		]);
-		const app = await start(harness);
+		const app = await start(harness, {}, undefined, undefined, { foldAfter: 0 });
 		const separator = (): string => app.emulator.screen().find((row) => row.startsWith("─"))!;
 		await app.submit("go");
 		await waitForIdle(harness);
@@ -491,7 +491,7 @@ describe("vt420 app", () => {
 		await app.submit("/scroll off");
 		expect(app.wheel()).toBe(false);
 		await app.submit("/fold maybe");
-		expect(app.screen()).toContain("Usage: /fold [on|off]");
+		expect(app.screen()).toContain("Usage: /fold [on|off|auto|<calls>]");
 		await app.key("ctrl+d");
 		await app.done;
 	});
@@ -1063,7 +1063,7 @@ describe("vt420 app", () => {
 			),
 			fauxAssistantMessage("Done: **all good** → `ok`"),
 		]);
-		const app = await start(harness);
+		const app = await start(harness, {}, undefined, undefined, { foldAfter: 0 });
 		await app.submit("list files");
 		await waitForIdle(harness);
 		const screen = app.screen();
@@ -1111,7 +1111,7 @@ describe("vt420 app", () => {
 			fauxAssistantMessage([fauxToolCall("bash", { command: "cd src &&\n  ls -la" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("listed"),
 		]);
-		const app = await start(harness);
+		const app = await start(harness, {}, undefined, undefined, { foldAfter: 0 });
 		await app.submit("list");
 		await waitForIdle(harness);
 		expect(app.screen()).toMatch(/^\$ *$/m);
@@ -1210,7 +1210,7 @@ describe("vt420 app", () => {
 		];
 		harness.setResponses([...run, ...run]);
 		await harness.session.prompt("before the frontend");
-		const app = await start(harness);
+		const app = await start(harness, {}, undefined, undefined, { foldAfter: 0 });
 		await app.submit("again");
 		await waitForIdle(harness);
 		const timed = app.emulator.screen().filter((line) => /^ƒ +1s$/.test(line));
@@ -1396,7 +1396,7 @@ describe("vt420 app", () => {
 			fauxAssistantMessage(fauxToolCall("bash", { command: "ls" }), { stopReason: "toolUse" }),
 			fauxAssistantMessage("done"),
 		]);
-		const app = await start(harness, { technical: false });
+		const app = await start(harness, { technical: false }, undefined, undefined, { foldAfter: 0 });
 		expect(app.emulator.statusText()).toContain("in 0 out 0 · ");
 		expect(app.emulator.statusText()).not.toMatch(/\^0|v0|\$/);
 		await app.submit("go");

@@ -46,6 +46,8 @@ interface Vt420Config {
 	intro?: boolean;
 	screensaver?: "auto" | "off" | "blank" | "progress" | "matrix";
 	screensaverMinutes?: number;
+	/** How many calls a stretch of thinking and calls may have before it folds, or "auto": as long as it fits. */
+	foldAfter?: "auto" | number;
 }
 
 interface Args {
@@ -403,6 +405,7 @@ async function main(): Promise<void> {
 		pasteWindowMs: config.pasteWindowMs,
 		screensaver: config.screensaver,
 		screensaverMinutes: config.screensaverMinutes,
+		foldAfter: config.foldAfter,
 		saveSettings: (settings) => saveConfig(configPath, settings),
 	});
 	try {
