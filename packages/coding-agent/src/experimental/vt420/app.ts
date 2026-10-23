@@ -367,6 +367,8 @@ export class Vt420App {
 	private mode: Mode = { kind: "normal" };
 	private follow = true;
 	private scrollTop = 0;
+	/** The live view's top row, which only goes on: the live view scrolls up and never back down. */
+	private liveTop = 0;
 	private scrolling = false;
 	/** The latest user message's block, which a /loop's note can name the run of. */
 	private lastUser: TranscriptBlock | undefined;
@@ -524,6 +526,7 @@ export class Vt420App {
 		}
 		this.io.onResize(() => {
 			this.renderer.resize(this.io.caps.rows, this.io.caps.columns);
+			this.liveTop = 0;
 			this.requestRender();
 		});
 		if (caps.softFont && !caps.unicode && caps.columns === 80 && caps.rows === 24) this.loadScopeFont();
@@ -619,6 +622,7 @@ export class Vt420App {
 
 	private rebuildTranscript(): void {
 		this.transcript.clear();
+		this.liveTop = 0;
 		this.tools.clear();
 		this.streaming = undefined;
 		const session = this.session;
@@ -2679,7 +2683,7 @@ export class Vt420App {
 
 	private scrollBy(delta: number): void {
 		const maxTop = Math.max(0, this.transcriptLength - this.regionHeight);
-		const current = this.follow ? maxTop : this.scrollTop;
+		const current = this.scrollTop;
 		const next = Math.max(0, Math.min(maxTop, current + delta));
 		this.scrollTop = next;
 		this.follow = next >= maxTop;
@@ -3115,7 +3119,9 @@ export class Vt420App {
 			const maxTop = Math.max(0, all.length - height);
 			if (this.follow || this.scrollTop >= maxTop) {
 				this.follow = true;
-				this.scrollTop = maxTop;
+				// what folds or shrinks leaves its rows blank instead of pulling the text above it down
+				this.scrollTop = Math.max(maxTop, Math.min(this.liveTop, all.length - 1));
+				this.liveTop = this.scrollTop;
 			}
 			lines = all.slice(this.scrollTop, this.scrollTop + height);
 		}

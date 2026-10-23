@@ -496,6 +496,43 @@ describe("vt420 app", () => {
 		await app.done;
 	});
 
+	it("leaves the rows of what folds blank at the bottom, the live view only scrolling up", async () => {
+		const harness = await createHarness({ tools: [echoBash] });
+		harnesses.push(harness);
+		const answer = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`).join("\n\n");
+		harness.setResponses([
+			fauxAssistantMessage(answer),
+			fauxAssistantMessage([fauxThinking("look"), fauxToolCall("bash", { command: "ls" })], {
+				stopReason: "toolUse",
+			}),
+			fauxAssistantMessage("done"),
+		]);
+		await harness.session.prompt("count");
+		const app = await start(harness, {}, undefined, undefined, { foldAfter: 0 });
+		await app.submit("/fold off");
+		await app.submit("list");
+		await waitForIdle(harness);
+		const region = (): string[] => {
+			const rows = app.emulator.screen();
+			return rows.slice(
+				0,
+				rows.findIndex((row) => row.startsWith("─")),
+			);
+		};
+		const before = region();
+		const stretch = before.findIndex((row) => row.startsWith("∴ Thought for"));
+		expect(stretch).toBeGreaterThan(0);
+		await app.key("f17");
+		const after = region();
+		// all above the stretch where it was, the stretch one line, what followed it up, its rows left blank below
+		expect(after.slice(0, stretch)).toEqual(before.slice(0, stretch));
+		expect(after[stretch]).toMatch(/^∴ 1 sec · > *$/);
+		expect(after.slice(stretch + 1, stretch + 3)).toEqual(["", "done"]);
+		expect(after.slice(stretch + 3).every((row) => row === "")).toBe(true);
+		await app.key("ctrl+d");
+		await app.done;
+	});
+
 	it("quits on /q as on /quit", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
