@@ -566,7 +566,7 @@ function renderBash(bash: BashState, context: RenderContext): Line[] {
 		? fullHeader(prompt, bash.command.trim(), status, context)
 		: [header(`${prompt}${oneLine(bash.command)}`, status, context)];
 	const limit = context.expandTools ? 400 : 5;
-	lines.push(...gutter(outputLines(bash.output, context.charset), limit, "tail", context));
+	lines.push(...gutter(outputRows(bash.output, context), limit, "tail", context));
 	return lines;
 }
 
@@ -709,7 +709,7 @@ function toolBody(tool: ToolState, context: RenderContext): BodyLine[] {
 	const { charset } = context;
 	const wrap = (text: string): BodyLine[] =>
 		outputLines(text, charset).flatMap((line) => hardWrap(line.cells, width).map((cells) => ({ cells })));
-	if (tool.status === "error") return wrap(tool.output).slice(-5);
+	if (tool.status === "error") return outputRows(tool.output, context).slice(-5);
 	switch (tool.name) {
 		case "edit": {
 			const diff = diffText(tool.details);
@@ -726,8 +726,19 @@ function toolBody(tool: ToolState, context: RenderContext): BodyLine[] {
 			return wrap(text ?? "");
 		}
 		default:
-			return wrap(tool.output);
+			return outputRows(tool.output, context);
 	}
+}
+
+/** Command output a row a line, cut at the edge; PF4 wraps it, to show each line whole. */
+function outputRows(text: string, context: RenderContext): BodyLine[] {
+	const { charset } = context;
+	const width = context.width - 4;
+	return outputLines(text, charset).flatMap((line) =>
+		context.expandTools
+			? hardWrap(line.cells, width).map((cells) => ({ cells }))
+			: [{ cells: truncateCells(line.cells, width, charset.cells("…")) }],
+	);
 }
 
 /** Tool output as lines: escape sequences removed, tabs expanded, stray controls shown as DEC control pictures. */

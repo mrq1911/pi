@@ -382,6 +382,23 @@ describe("vt420 transcript tools", () => {
 			tool: { name: "grep", args: { pattern: "line" }, status: running ? "running" : "done", output, startedAt: 0 },
 		});
 
+	it("cuts a long line of command output at the edge, and wraps it only with PF4", () => {
+		const block = new TranscriptBlock(1, {
+			kind: "tool",
+			tool: { name: "bash", args: { command: "make" }, status: "done", output: `${"x".repeat(60)}\nshort` },
+		});
+		expect(linesText(block.render(context()))).toEqual([
+			`> make${" ".repeat(33)}√`,
+			`  │ ${"x".repeat(33)}...`,
+			"  └ short",
+		]);
+		expect(linesText(block.render({ ...context(), expandTools: true })).slice(1)).toEqual([
+			`  │ ${"x".repeat(36)}`,
+			`  │ ${"x".repeat(24)}`,
+			"  └ short",
+		]);
+	});
+
 	it("puts a command on one line, as much of it as fits", () => {
 		const done = (command: string): string[] =>
 			linesText(

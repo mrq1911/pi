@@ -77,8 +77,9 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
   three words glow in bold. Once the model moves on, it settles on one line with how long it took, `∴ Thought for 1 min 32 sec`.
   Sessions do not record that, so in a resumed one it says how many tokens instead: the provider's count where it
   reports one, `∴ Thought for 1.2k tokens`, or else four characters to a token, `∴ Thought for ≃1.2k tokens`. PF3 shows
-  all of it. Tool calls show their command on one line, line breaks and continuations joined, as much as fits; PF4
-  shows each call in full, the command with its line breaks and every argument, and up to 400 lines of its output.
+  all of it. Tool calls show their command on one line, line breaks and continuations joined, as much as fits, and
+  their output a row a line, a long one cut at the edge; PF4 shows each call in full, the command with its line
+  breaks and every argument, and up to 400 lines of its output, long ones wrapped.
   A call that ran a second or more says for how long beside its √ or ×, in a resumed session too. A stretch of
   thinking and calls with no text between folds into one line, `∴ 32 sec · > ↑ ↑ >× Δ   1m 05s`: how long it
   thought, the answer's thinking after it included, a glyph for each call in order, × on one that failed, and how long
