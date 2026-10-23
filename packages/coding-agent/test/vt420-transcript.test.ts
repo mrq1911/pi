@@ -237,10 +237,11 @@ describe("vt420 transcript steps", () => {
 
 	it("keeps the latest step in full while the model works, beneath the ones done", () => {
 		const lines = shown(stretch({ running: true }), { working: true });
-		expect(lines[0]).toBe(`∴ 12 sec · $×${" ".repeat(25)}1s`);
+		// the call going beats where it will fold to, and its own line keeps only its time
+		expect(lines[0]).toBe(`∴ 12 sec · $× ·${" ".repeat(23)}1s`);
 		expect(lines[1]).toBe("");
 		expect(lines[2]).toBe("∴ Thought for 3 sec");
-		expect(lines[3]).toMatch(/^↑ a\.ts +·$/);
+		expect(lines[3]).toBe("↑ a.ts");
 	});
 
 	it("folds a stretch past the calls it may have, or, auto, as it takes for the turn to fit the screen", () => {
@@ -253,7 +254,7 @@ describe("vt420 transcript steps", () => {
 		expect(shown(finished, { foldAfter: "auto", height: 12 })[0]).toMatch(/^∴ 20 sec · \$× ↑ +3s$/);
 		// a turn still going folds the steps done once it no longer fits, and keeps the latest
 		const live = shown(stretch({ running: true }), { foldAfter: "auto", height: 8, working: true });
-		expect(live[0]).toMatch(/^∴ 12 sec · \$× +1s$/);
+		expect(live[0]).toMatch(/^∴ 12 sec · \$× · +1s$/);
 		expect(live[2]).toBe("∴ Thought for 3 sec");
 	});
 
@@ -285,6 +286,47 @@ describe("vt420 transcript steps", () => {
 		expect(lines[0]).toMatch(/^∴ 2 sec · \$ *$/);
 		expect(lines).toContain("Now the tests.");
 		expect(lines.some((line) => line.startsWith("↑ a.ts"))).toBe(true);
+	});
+
+	it("goes on in rows beneath when the glyphs do not fit one, under the first", () => {
+		const transcript = new Transcript();
+		transcript.add({ kind: "user", text: "read them all" });
+		for (let file = 0; file < 20; file++) {
+			transcript.add({
+				kind: "assistant",
+				message: reply([call("read", `f${file}`)]),
+				streaming: false,
+			});
+			transcript.add({
+				kind: "tool",
+				tool: { name: "read", args: { path: `/work/f${file}` }, status: "done", output: "" },
+			});
+		}
+		transcript.add({ kind: "assistant", message: reply([{ type: "text", text: "Read." }]), streaming: false });
+		const lines = shown(transcript);
+		expect(lines[0]).toBe(`${"↑ ".repeat(19)}↑`);
+		expect(lines[1]).toBe("");
+		expect(lines[2]).toBe("Read.");
+		const thought = new Transcript();
+		thought.add({ kind: "user", text: "think and read" });
+		thought.add({
+			kind: "assistant",
+			message: reply([
+				{ type: "thinking", thinking: "x" },
+				...Array.from({ length: 16 }, (_, i) => call("read", `g${i}`)),
+			]),
+			streaming: false,
+			thinkingTimes: new Map([[0, { since: 0, until: 4000 }]]),
+		});
+		for (let file = 0; file < 16; file++) {
+			thought.add({
+				kind: "tool",
+				tool: { name: "read", args: { path: `/work/g${file}` }, status: "done", output: "", durationMs: 1000 },
+			});
+		}
+		const rows = shown(thought).slice(0, 2);
+		expect(rows[0]).toBe(`∴ 4 sec · ${"↑ ".repeat(12)}↑${" ".repeat(2)}16s`);
+		expect(rows[1]).toBe(`${" ".repeat(10)}↑ ↑ ↑`);
 	});
 
 	it("shows every step again unfolded, and PF3 or PF4 alone leave them folded", () => {

@@ -102,11 +102,14 @@ export class TranscriptBlock {
 		return false;
 	}
 
-	/** `answerOnly` leaves out an answer's thinking before its text, which the summary of the steps before it took. */
-	render(context: RenderContext, answerOnly = false): Line[] {
-		const key = `${this.version}|${context.width}|${context.showThinking}|${context.expandTools}|${answerOnly}|${this.animated ? context.tick : ""}`;
+	/**
+	 * `answer` leaves out an answer's thinking before its text, which the summary of the steps before it took; `quiet`,
+	 * a running call's heartbeat, which beats in the summary instead, where the call will fold to.
+	 */
+	render(context: RenderContext, variant?: "answer" | "quiet"): Line[] {
+		const key = `${this.version}|${context.width}|${context.showThinking}|${context.expandTools}|${variant}|${this.animated ? context.tick : ""}`;
 		if (key === this.cacheKey) return this.cached;
-		this.cached = renderBlock(this.content, context, answerOnly);
+		this.cached = renderBlock(this.content, context, variant);
 		this.cacheKey = key;
 		return this.cached;
 	}
@@ -214,10 +217,15 @@ export class Transcript {
 			const live = end === blocks.length && context.working === true;
 			const shown = live ? latestStep(steps) : steps.length;
 			const answer = live || end >= to ? undefined : answerAfter(blocks[end]);
-			if (shown > 0 || answer) emit("steps", [stepsLine(steps.slice(0, shown), answer, context)], false);
-			for (const step of steps.slice(shown)) emit(step.content.kind, step.render(context), false);
+			// the calls still going beat in the line, where they will fold to
+			const going = steps.slice(shown).filter((step) => step.content.kind === "tool" && step.animated).length;
+			const summary = shown > 0 || answer !== undefined;
+			if (summary) emit("steps", stepsLine(steps.slice(0, shown), answer, going, context), false);
+			for (const step of steps.slice(shown)) {
+				emit(step.content.kind, step.render(context, summary ? "quiet" : undefined), false);
+			}
 			if (answer) {
-				emit("assistant", answer.render(context, true), false);
+				emit("assistant", answer.render(context, "answer"), false);
 				at = end + 1;
 			} else at = end;
 		}
@@ -251,13 +259,17 @@ function answerAfter(block: TranscriptBlock | undefined): TranscriptBlock | unde
 	return message.content[0]?.type === "thinking" ? block : undefined;
 }
 
-/** "∴ 32 sec · $ ↑ ↑ $× Δ" with how long the calls ran on the right; × marks a call that failed. */
+/**
+ * "∴ 32 sec · $ ↑ ↑ $× Δ" with how long the calls ran on the right; × marks a call that failed, and a heartbeat each
+ * call still `going`. Glyphs that do not fit go on in rows beneath, under the first.
+ */
 function stepsLine(
 	steps: readonly TranscriptBlock[],
 	answer: TranscriptBlock | undefined,
+	going: number,
 	context: RenderContext,
-): Line {
-	const { charset } = context;
+): Line[] {
+	const { charset, width } = context;
 	let thought = false;
 	let timed = true;
 	let thinkingMs = 0;
@@ -305,9 +317,23 @@ function stepsLine(
 			: tokens > 0
 				? `${marker} ${about}${formatTokens(tokens)} token${tokens === 1 ? "" : "s"}`
 				: marker;
-	const summary = [thinking, glyphs.join(" ")].filter(Boolean).join(" · ");
-	const status = finishedStatus("", "", ranMs);
-	return header(summary, status, context);
+	for (let call = 0; call < going; call++) glyphs.push(HEARTBEAT[context.tick % HEARTBEAT.length]!);
+	const status = charset.cells(finishedStatus("", "", ranMs));
+	const lead = charset.cells(thinking ? `${thinking}${glyphs.length > 0 ? " · " : ""}` : "");
+	const calls = charset.cells(glyphs.join(" "));
+	const rows =
+		calls.length > 0
+			? wrapHanging(calls, Math.max(4, width - status.length - 1 - lead.length), Math.max(4, width - lead.length))
+			: [[]];
+	return rows.map(
+		(row, index): Line => ({
+			cells:
+				index === 0
+					? [...padCells([...lead, ...row], width - status.length), ...status]
+					: [...spaces(lead.length), ...row],
+			attr: LINE_SINGLE,
+		}),
+	);
 }
 
 /** A user message is boxed unless it only invokes a skill. */
@@ -317,14 +343,20 @@ function isBoxed(content: BlockContent): boolean {
 	return !skill || Boolean(skill.userMessage);
 }
 
-function renderBlock(content: BlockContent, context: RenderContext, answerOnly: boolean): Line[] {
+function renderBlock(content: BlockContent, context: RenderContext, variant: "answer" | "quiet" | undefined): Line[] {
 	switch (content.kind) {
 		case "user":
 			return renderUser(content.text, context);
 		case "assistant":
-			return renderAssistant(content.message, content.streaming, content.thinkingTimes, context, answerOnly);
+			return renderAssistant(
+				content.message,
+				content.streaming,
+				content.thinkingTimes,
+				context,
+				variant === "answer",
+			);
 		case "tool":
-			return renderTool(content.tool, context);
+			return renderTool(content.tool, context, variant === "quiet");
 		case "bash":
 			return renderBash(content.bash, context);
 		case "notice":
@@ -495,14 +527,14 @@ const TOOL_GLYPHS: Record<string, string> = {
 	ls: "├",
 };
 
-function renderTool(tool: ToolState, context: RenderContext): Line[] {
+function renderTool(tool: ToolState, context: RenderContext, quiet = false): Line[] {
 	const { charset } = context;
 	const glyph = TOOL_GLYPHS[tool.name] ?? "ƒ";
 	// Without the glyph, name the tool; unknown tools already start with their name.
 	const marker = charset.has(glyph) ? `${glyph} ` : TOOL_GLYPHS[tool.name] ? `${tool.name} ` : "";
 	const running = tool.status === "pending" || tool.status === "running";
 	const status = running
-		? spinnerStatus(context, tool.startedAt)
+		? spinnerStatus(context, tool.startedAt, quiet)
 		: tool.status === "error"
 			? finishedStatus(failMark(charset), "", tool.durationMs)
 			: finishedStatus(okMark(charset), doneLabel(tool), tool.durationMs);
@@ -582,10 +614,12 @@ function finishedStatus(mark: string, label: string, durationMs: number | undefi
 	return [[label, took].filter(Boolean).join(" · "), mark].filter(Boolean).join(" ");
 }
 
-function spinnerStatus(context: RenderContext, startedAt: number | undefined): string {
+/** How long a call has run and its heartbeat, unless `quiet`: then it beats in the summary of its stretch. */
+function spinnerStatus(context: RenderContext, startedAt: number | undefined, quiet = false): string {
 	const frame = HEARTBEAT[context.tick % HEARTBEAT.length]!;
 	const seconds = startedAt === undefined ? 0 : Math.floor((context.now - startedAt) / 1000);
-	return seconds >= 2 ? `${formatDuration(seconds)} ${frame}` : frame;
+	const took = seconds >= 2 ? formatDuration(seconds) : "";
+	return quiet ? took : [took, frame].filter(Boolean).join(" ");
 }
 
 /** A tool header with its status right-aligned. */
