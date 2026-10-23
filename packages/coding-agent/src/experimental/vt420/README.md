@@ -80,7 +80,7 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
   all of it. Tool calls show their command on one line, line breaks and continuations joined, as much as fits; PF4
   shows each call in full, the command with its line breaks and every argument, and up to 400 lines of its output.
   A call that ran a second or more says for how long beside its √ or ×, in a resumed session too. A stretch of
-  thinking and calls with no text between folds into one line, `∴ 32 sec · $ ↑ ↑ $× Δ   1m 05s`: how long it
+  thinking and calls with no text between folds into one line, `∴ 32 sec · > ↑ ↑ >× Δ   1m 05s`: how long it
   thought, the answer's thinking after it included, a glyph for each call in order, × on one that failed, and how long
   the calls ran. Stretches fold only as it takes, oldest first, for your latest message and all after it to fit on
   the screen; `"foldAfter": 3` in `vt420.json`, or `/fold 3`, folds instead every stretch of more than three calls,

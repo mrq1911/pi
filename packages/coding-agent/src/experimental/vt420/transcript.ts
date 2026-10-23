@@ -5,7 +5,7 @@
  * width or a display toggle changes. Running blocks re-render per spinner tick; finished blocks never do.
  *
  * Glyphs: user turns are boxed in line drawing and led by π; thinking is ∴; tools are ↑ read, ← write, Δ edit,
- * $ bash, ∼ grep, ∇ find, ├ ls and ƒ for everything else; √ and × close a tool; a · ◆ heartbeat marks one
+ * > bash, ∼ grep, ∇ find, ├ ls and ƒ for everything else; √ and × close a tool; a · ◆ heartbeat marks one
  * running. A stretch of thinking and calls folds into one line of those glyphs once the model moves on.
  */
 
@@ -521,7 +521,7 @@ const TOOL_GLYPHS: Record<string, string> = {
 	read: "↑",
 	write: "←",
 	edit: "Δ",
-	bash: "$",
+	bash: ">",
 	grep: "∼",
 	find: "∇",
 	ls: "├",

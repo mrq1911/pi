@@ -232,13 +232,13 @@ describe("vt420 transcript steps", () => {
 		linesText(transcript.lines({ ...context(), ...view })).slice(3);
 
 	it("folds thinking and calls into one line, the answer's thinking too, a failed call marked", () => {
-		expect(shown(stretch(undefined))).toEqual([`∴ 20 sec · $× ↑${" ".repeat(23)}3s`, "", "Fixed it."]);
+		expect(shown(stretch(undefined))).toEqual([`∴ 20 sec · >× ↑${" ".repeat(23)}3s`, "", "Fixed it."]);
 	});
 
 	it("keeps the latest step in full while the model works, beneath the ones done", () => {
 		const lines = shown(stretch({ running: true }), { working: true });
 		// the call going beats where it will fold to, and its own line keeps only its time
-		expect(lines[0]).toBe(`∴ 12 sec · $× ·${" ".repeat(23)}1s`);
+		expect(lines[0]).toBe(`∴ 12 sec · >× ·${" ".repeat(23)}1s`);
 		expect(lines[1]).toBe("");
 		expect(lines[2]).toBe("∴ Thought for 3 sec");
 		expect(lines[3]).toBe("↑ a.ts");
@@ -247,14 +247,14 @@ describe("vt420 transcript steps", () => {
 	it("folds a stretch past the calls it may have, or, auto, as it takes for the turn to fit the screen", () => {
 		const finished = stretch(undefined);
 		// two calls: one too many for 1, few enough for 2
-		expect(shown(finished, { foldAfter: 1 })[0]).toMatch(/^∴ 20 sec · \$× ↑ +3s$/);
+		expect(shown(finished, { foldAfter: 1 })[0]).toMatch(/^∴ 20 sec · >× ↑ +3s$/);
 		expect(shown(finished, { foldAfter: 2 })[0]).toBe("∴ Thought for 12 sec");
 		// auto: the turn, the message box and all after it, takes 13 rows unfolded: it fits 13, not 12
 		expect(shown(finished, { foldAfter: "auto", height: 13 })[0]).toBe("∴ Thought for 12 sec");
-		expect(shown(finished, { foldAfter: "auto", height: 12 })[0]).toMatch(/^∴ 20 sec · \$× ↑ +3s$/);
+		expect(shown(finished, { foldAfter: "auto", height: 12 })[0]).toMatch(/^∴ 20 sec · >× ↑ +3s$/);
 		// a turn still going folds the steps done once it no longer fits, and keeps the latest
 		const live = shown(stretch({ running: true }), { foldAfter: "auto", height: 8, working: true });
-		expect(live[0]).toMatch(/^∴ 12 sec · \$× · +1s$/);
+		expect(live[0]).toMatch(/^∴ 12 sec · >× · +1s$/);
 		expect(live[2]).toBe("∴ Thought for 3 sec");
 	});
 
@@ -283,7 +283,7 @@ describe("vt420 transcript steps", () => {
 		transcript.add({ kind: "assistant", message: reply([{ type: "text", text: "All good." }]), streaming: false });
 		// 13 rows unfolded; folding the first stretch alone brings the turn to 9
 		const lines = shown(transcript, { foldAfter: "auto", height: 10 });
-		expect(lines[0]).toMatch(/^∴ 2 sec · \$ *$/);
+		expect(lines[0]).toMatch(/^∴ 2 sec · > *$/);
 		expect(lines).toContain("Now the tests.");
 		expect(lines.some((line) => line.startsWith("↑ a.ts"))).toBe(true);
 	});
@@ -331,10 +331,10 @@ describe("vt420 transcript steps", () => {
 
 	it("shows every step again unfolded, and PF3 or PF4 alone leave them folded", () => {
 		const unfolded = shown(stretch(undefined), { foldSteps: false });
-		expect(unfolded.some((line) => line.startsWith("$ make"))).toBe(true);
+		expect(unfolded.some((line) => line.startsWith("> make"))).toBe(true);
 		expect(unfolded).toContain("∴ Thought for 12 sec");
 		for (const view of [{ expandTools: true }, { showThinking: true }]) {
-			expect(shown(stretch(undefined), view)[0]).toMatch(/^∴ 20 sec · \$× ↑ +3s$/);
+			expect(shown(stretch(undefined), view)[0]).toMatch(/^∴ 20 sec · >× ↑ +3s$/);
 		}
 	});
 });
@@ -360,11 +360,11 @@ describe("vt420 transcript tools", () => {
 					tool: { name: "bash", args: { command }, status: "done", output: "" },
 				}).render(context()),
 			);
-		expect(done("make \\\n  -j4\nmake test")).toEqual([`$ make -j4 make test${" ".repeat(19)}√`]);
+		expect(done("make \\\n  -j4\nmake test")).toEqual([`> make -j4 make test${" ".repeat(19)}√`]);
 		const long = done(
 			`npm test -- --run \\\n${["a", "b", "c", "d"].map((name) => `  test/${name}.test.ts`).join("\n")}`,
 		);
-		expect(long).toEqual(["$ npm test -- --run test/a.test.ts ... √"]);
+		expect(long).toEqual(["> npm test -- --run test/a.test.ts ... √"]);
 		const typed = new TranscriptBlock(1, {
 			kind: "bash",
 			bash: {
@@ -386,12 +386,12 @@ describe("vt420 transcript tools", () => {
 				new TranscriptBlock(1, { kind: "tool", tool: { name, args, status: "done", output: "" } }).render(expanded),
 			);
 		expect(call("bash", { command: 'for f in *.ts; do\n  echo "$f"\ndone', timeout: 30 })).toEqual([
-			`$ for f in *.ts; do${" ".repeat(20)}√`,
+			`> for f in *.ts; do${" ".repeat(20)}√`,
 			'    echo "$f"',
 			"  done (timeout 30s)",
 		]);
 		expect(call("bash", { command: "echo one two three four five six seven eight nine ten" })).toEqual([
-			`$ echo one two three four five six${" ".repeat(5)}√`,
+			`> echo one two three four five six${" ".repeat(5)}√`,
 			"  seven eight nine ten",
 		]);
 		expect(call("grep", { pattern: "TODO", glob: "*.md", ignoreCase: true })).toEqual([
@@ -429,8 +429,8 @@ describe("vt420 transcript tools", () => {
 					tool: { name: "bash", args: { command: "make" }, status: "done", output: "", ...tool },
 				}).render(context()),
 			)[0];
-		expect(header({ durationMs: 65_000 })).toBe(`$ make${" ".repeat(26)}1m 05s √`);
-		expect(header({ durationMs: 400 })).toBe(`$ make${" ".repeat(33)}√`);
+		expect(header({ durationMs: 65_000 })).toBe(`> make${" ".repeat(26)}1m 05s √`);
+		expect(header({ durationMs: 400 })).toBe(`> make${" ".repeat(33)}√`);
 		const running = new TranscriptBlock(1, {
 			kind: "tool",
 			tool: { name: "bash", args: { command: "make" }, status: "running", output: "", startedAt: 0 },
@@ -438,9 +438,9 @@ describe("vt420 transcript tools", () => {
 		// a heartbeat: a dot swelling to a diamond, and a rest, the time keeping its place
 		const beats = [0, 1, 2, 3, 4].map((tick) => linesText(running.render({ ...context(), now: 65_000, tick }))[0]);
 		expect(beats).toEqual(
-			["·", "◆", "·", " ", " "].map((frame) => `$ make${" ".repeat(26)}1m 05s ${frame}`.trimEnd()),
+			["·", "◆", "·", " ", " "].map((frame) => `> make${" ".repeat(26)}1m 05s ${frame}`.trimEnd()),
 		);
-		expect(header({ status: "error", durationMs: 2500 })).toBe(`$ make${" ".repeat(30)}2s ×`);
+		expect(header({ status: "error", durationMs: 2500 })).toBe(`> make${" ".repeat(30)}2s ×`);
 		const edit = { name: "edit", args: { path: "/work/a.ts" }, details: { diff: "-old\n+new" }, durationMs: 3000 };
 		expect(header(edit)).toBe(`Δ a.ts${" ".repeat(22)}+1 -1 · 3s √`);
 		const content = Array.from({ length: 42 }, (_, i) => `line ${i + 1}\n`).join("");
