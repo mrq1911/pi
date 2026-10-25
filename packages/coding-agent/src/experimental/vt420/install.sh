@@ -1,9 +1,22 @@
 #!/usr/bin/env bash
 # Install or update pi-vt420 from the checkout this script lives in, and make it the default pi.
 # An npm-installed pi stays reachable as pi-classic. Linked as pi-vt420-update.
+# Fetched on its own (curl ... | bash), it clones the vt420 branch first, or updates the clone already there.
 set -euo pipefail
 
-ROOT="$(git -C "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" rev-parse --show-toplevel)"
+for tool in git node npm; do
+	command -v "$tool" >/dev/null || { echo "pi-vt420: needs $tool (and Node 22.19 or later)" >&2; exit 1; }
+done
+
+source="${BASH_SOURCE[0]:-}"
+if [[ -f "$source" ]] && ROOT="$(git -C "$(dirname "$(readlink -f "$source")")" rev-parse --show-toplevel 2>/dev/null)" &&
+	[[ -f "$ROOT/pi-vt420.sh" ]]; then
+	:
+else
+	clone="${PI_VT420_DIR:-$HOME/.local/share/pi-vt420}"
+	[[ -d "$clone/.git" ]] || git clone --branch vt420 https://github.com/mrq1911/pi.git "$clone"
+	exec "$clone/packages/coding-agent/src/experimental/vt420/install.sh" "$@"
+fi
 BIN="${PI_VT420_BIN:-$HOME/.local/bin}"
 cd "$ROOT"
 

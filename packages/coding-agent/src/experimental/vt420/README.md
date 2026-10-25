@@ -17,9 +17,16 @@ The start-up animation, then a local model finds why a test fails and fixes it, 
 
 ## Install
 
-`install.sh` makes a checkout the default `pi`: it installs the dependencies (`npm ci --ignore-scripts`), fetches the
-model catalog, links `pi` and `pi-vt420` in `~/.local/bin` to `pi-vt420.sh`, and keeps an npm-installed pi reachable
-as `pi-classic`.
+It needs git and Node 22.19 or later:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mrq1911/pi/vt420/packages/coding-agent/src/experimental/vt420/install.sh | bash
+```
+
+`install.sh`, fetched on its own like that, clones the `vt420` branch into `~/.local/share/pi-vt420` (`PI_VT420_DIR`
+for elsewhere) and goes on from there. It makes that checkout the default `pi`: it installs the dependencies
+(`npm ci --ignore-scripts`), fetches the model catalog, links `pi` and `pi-vt420` in `~/.local/bin` to `pi-vt420.sh`,
+and keeps an npm-installed pi reachable as `pi-classic`. From a checkout of your own, run it there instead:
 
 ```bash
 git clone --branch vt420 https://github.com/mrq1911/pi.git ~/.local/share/pi-vt420
