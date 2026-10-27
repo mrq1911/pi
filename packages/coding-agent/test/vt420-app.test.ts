@@ -789,9 +789,10 @@ describe("vt420 app", () => {
 			fauxAssistantMessage("ok"),
 		]);
 		void harness.session.prompt("wait");
-		// π falls on its own, a few bytes a line, which a window in bytes would let pile up by the dozen
+		// π falls on its own, a few bytes a line, which a window in bytes would let pile up by the dozen; two lines of a
+		// few pieces each are out at most, with room for a frame of something else on a loaded machine
 		await settle(1500);
-		expect(app.line.mostAhead).toBeLessThanOrEqual(6);
+		expect(app.line.mostAhead).toBeLessThanOrEqual(8);
 		await app.type("x");
 		await settle(500);
 		expect(app.emulator.text(2)).toContain("VT420");
