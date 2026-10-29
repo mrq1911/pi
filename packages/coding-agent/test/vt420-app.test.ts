@@ -439,7 +439,7 @@ describe("vt420 app", () => {
 		await waitForIdle(harness);
 		expect(harness.session.getSteeringMessages()).toHaveLength(0);
 		const rows = app.emulator.screen();
-		const first = rows.findIndex((row) => row === "π first change");
+		const first = rows.indexOf("π first change");
 		expect(first).toBeGreaterThan(-1);
 		expect(rows.slice(first, first + 5).map((row) => row.trimEnd())).toEqual([
 			"π first change",
