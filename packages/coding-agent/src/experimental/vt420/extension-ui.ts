@@ -16,6 +16,8 @@ export interface ExtensionUIHost {
 	status(text: string | undefined): void;
 	/** The word for the separator row while the agent works, or the default. */
 	working(message: string | undefined): void;
+	/** The terminal window's title, where the terminal has one. */
+	title(text: string): void;
 	editorText(): string;
 	setEditorText(text: string): void;
 	insertText(text: string): void;
@@ -84,7 +86,7 @@ export function createExtensionUI(host: ExtensionUIHost): ExtensionUIContext {
 		setWidget: () => {},
 		setFooter: () => {},
 		setHeader: () => {},
-		setTitle: () => {},
+		setTitle: (title) => host.title(stripAnsi(title)),
 		custom: async () => undefined as never,
 		pasteToEditor: (text) => host.insertText(text),
 		setEditorText: (text) => host.setEditorText(text),

@@ -21,7 +21,7 @@ import {
 	type Transport,
 } from "@earendil-works/pi-ai";
 import { DEFAULT_RADIUS_GATEWAY } from "@earendil-works/pi-ai/providers/radius-config";
-import { fuzzyFilter } from "@earendil-works/pi-tui";
+import { fuzzyFilter, replaceControlCharacters } from "@earendil-works/pi-tui";
 import {
 	ATTR_BOLD,
 	cellCode,
@@ -37,7 +37,7 @@ import { type Frame, type Renderer, rendererFor } from "@mrq/vt420/renderer.js";
 import { behindVt420, type TerminalCapabilities } from "@mrq/vt420/terminal.js";
 import { padCells, spaces, truncateCells } from "@mrq/vt420/text.js";
 import { getAuthCredential } from "../../cli/auth-command.ts";
-import { getShareViewerUrl } from "../../config.ts";
+import { APP_TITLE, getShareViewerUrl } from "../../config.ts";
 import type { AgentSession, AgentSessionEvent } from "../../core/agent-session.ts";
 import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
 import { bugReportArchiveFileName, writeBugReportArchive } from "../../core/bug-report.ts";
@@ -438,6 +438,11 @@ export class Vt420App {
 	 */
 	private readonly footerInTitle: boolean;
 	private footerTitle = "";
+	/** An emulator not behind vt420-term gets a window title, as pi sets it. */
+	private readonly windowTitle: boolean;
+	private shownTitle = "";
+	/** The title an extension set, instead of pi's. */
+	private extensionTitle: string | undefined;
 	private saverMinutes: number;
 	private saverTimer: ReturnType<typeof setTimeout> | undefined;
 	private saverMoveTimer: ReturnType<typeof setInterval> | undefined;
@@ -471,6 +476,7 @@ export class Vt420App {
 		// is, gets no screen saver, whatever the setting
 		this.saverHere = !caps.unicode && caps.level >= 4;
 		this.footerInTitle = caps.unicode && !caps.statusLine && behindVt420() !== undefined;
+		this.windowTitle = caps.unicode && !this.footerInTitle;
 		this.saverMinutes = options.screensaverMinutes ?? SAVER_MINUTES;
 		const after = options.foldAfter;
 		this.foldAfter = typeof after === "number" && Number.isInteger(after) && after >= 0 ? after : "auto";
@@ -484,6 +490,10 @@ export class Vt420App {
 			},
 			working: (message) => {
 				this.workingWord = message;
+				this.requestRender();
+			},
+			title: (text) => {
+				this.extensionTitle = text;
 				this.requestRender();
 			},
 			editorText: () => this.editor.text,
@@ -524,6 +534,8 @@ export class Vt420App {
 				else if (response.kind === sync.answer) this.answered();
 			});
 		}
+		// the window's own title onto the terminal's title stack, for the exit to put back
+		if (this.windowTitle) this.io.write("\x1b[22;0t");
 		this.io.onResize(() => {
 			this.renderer.resize(this.io.caps.rows, this.io.caps.columns);
 			this.liveTop = 0;
@@ -541,6 +553,8 @@ export class Vt420App {
 		this.closed = true;
 		// the next program's title, not pi's footer
 		if (this.footerInTitle) this.io.write("\x1b]2;\x1b\\");
+		// the title the window had before, from the terminal's title stack
+		else if (this.windowTitle) this.io.write("\x1b[23;0t");
 		this.unsubscribe?.();
 		this.runtime.setRebindSession(undefined);
 		this.loginController?.abort();
@@ -2909,6 +2923,7 @@ export class Vt420App {
 		const footer = this.footerCells(columns);
 		if (footerRow) lines.push({ cells: footer, attr: LINE_SINGLE });
 		if (this.footerInTitle) this.titleFooter(footer);
+		else if (this.windowTitle) this.showTitle();
 		const cursorVisible = this.mode.kind !== "help";
 		return {
 			lines,
@@ -3220,6 +3235,18 @@ export class Vt420App {
 		const room = Math.max(0, width - right.length);
 		const shown = truncateCells(left, room, charset.cells("… "));
 		return [...padCells(shown, width - right.length, line), ...right];
+	}
+
+	/** The window title as pi sets it: π, the session's name and the directory; written when it changes. */
+	private showTitle(): void {
+		const name = this.session.sessionName;
+		const where = basename(this.session.sessionManager.getCwd());
+		const title = replaceControlCharacters(
+			this.extensionTitle ?? [APP_TITLE, name, where].filter(Boolean).join(" - "),
+		);
+		if (title === this.shownTitle) return;
+		this.shownTitle = title;
+		this.io.write(`\x1b]0;${title}\x1b\\`);
 	}
 
 	/** Tokens in and out, generation speed, context use and the directory, right-aligned to leave room under the prompt. */
