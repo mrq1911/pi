@@ -37,7 +37,7 @@ import { type Frame, type Renderer, rendererFor } from "@mrq/vt420/renderer.js";
 import { behindVt420, type TerminalCapabilities } from "@mrq/vt420/terminal.js";
 import { padCells, spaces, truncateCells } from "@mrq/vt420/text.js";
 import { getAuthCredential } from "../../cli/auth-command.ts";
-import { APP_TITLE, getShareViewerUrl } from "../../config.ts";
+import { getShareViewerUrl } from "../../config.ts";
 import type { AgentSession, AgentSessionEvent } from "../../core/agent-session.ts";
 import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
 import { bugReportArchiveFileName, writeBugReportArchive } from "../../core/bug-report.ts";
@@ -3237,12 +3237,10 @@ export class Vt420App {
 		return [...padCells(shown, width - right.length, line), ...right];
 	}
 
-	/** The window title as pi sets it: π, the session's name and the directory; written when it changes. */
+	/** The window title: the session's name, or else the directory; written when it changes. */
 	private showTitle(): void {
-		const name = this.session.sessionName;
-		const where = basename(this.session.sessionManager.getCwd());
 		const title = replaceControlCharacters(
-			this.extensionTitle ?? [APP_TITLE, name, where].filter(Boolean).join(" - "),
+			this.extensionTitle ?? this.session.sessionName ?? basename(this.session.sessionManager.getCwd()),
 		);
 		if (title === this.shownTitle) return;
 		this.shownTitle = title;

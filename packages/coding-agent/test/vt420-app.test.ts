@@ -285,16 +285,16 @@ describe("vt420 app", () => {
 		}
 	});
 
-	it("titles an emulator's window as pi does, and gives the old title back on the way out", async () => {
+	it("titles an emulator's window with the session's name or the directory, and gives the old title back on the way out", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
 		const app = await start(harness, { unicode: true, supplemental: "latin1", statusLine: false });
 		const where = harness.session.sessionManager.getCwd().split("/").at(-1);
 		const titles = (): string[] => app.output.join("").match(/\x1b\]0;[^\x1b]*\x1b\\/g) ?? [];
 		expect(app.output.join("")).toContain("\x1b[22;0t");
-		expect(titles()).toEqual([`\x1b]0;π - ${where}\x1b\\`]);
+		expect(titles()).toEqual([`\x1b]0;${where}\x1b\\`]);
 		await app.submit("/name bugs");
-		expect(titles().at(-1)).toBe(`\x1b]0;π - bugs - ${where}\x1b\\`);
+		expect(titles().at(-1)).toBe("\x1b]0;bugs\x1b\\");
 		// only when it changes
 		await app.type("x");
 		expect(titles()).toHaveLength(2);

@@ -144,8 +144,8 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
   where the server has `AcceptEnv LC_VT420_TERM`), the banner names the terminal at the end of the line, and where pi
   draws on an emulator in between, such as a zellij pane, the footer goes in the window title, π first, and its row
   to the transcript: vt420-term shows that title on the VT420's status line, over zellij's bar while zellij is in
-  normal mode. Any other emulator gets the window title pi gives it (`π - <session name> - <directory>`, or an
-  extension's), and the title it had before back on exit, from the terminal's title stack.
+  normal mode. Any other emulator gets the session's name, or else the directory, as its window title (or an
+  extension's title), and the title it had before back on exit, from the terminal's title stack.
 
 ## Keys
 
