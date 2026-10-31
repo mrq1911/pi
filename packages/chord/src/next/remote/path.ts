@@ -18,6 +18,8 @@ export class Path {
 	readonly #holders = new Set<Upstream>();
 	readonly #changed: () => void;
 	#link: HostLink | undefined;
+	/** Whether it ever had a link: a host never connected to a parent has no parent path to wait on. */
+	#linked = false;
 
 	constructor(changed: () => void) {
 		this.#changed = changed;
@@ -26,6 +28,11 @@ export class Path {
 	/** The current link while one is open. */
 	get link(): HostLink | undefined {
 		return this.#link;
+	}
+
+	/** Whether it had a link once (it may be down now: its holders wait for the next). */
+	get linked(): boolean {
+		return this.#linked;
 	}
 
 	/** Whether anything is held over this path. */
@@ -49,6 +56,7 @@ export class Path {
 	/** `link` is the path's link now: every holder is held on it. */
 	connected(link: HostLink): void {
 		this.#link = link;
+		this.#linked = true;
 		for (const holder of this.#holders) holder.attach(link);
 	}
 

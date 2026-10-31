@@ -15,11 +15,14 @@ import {
 	fakeTimers,
 	forEachCodec,
 	instancesOf,
+	Notes,
 	PlacedNotes,
 	RawPeer,
 	rawWorkers,
 	rejection,
 	relayed,
+	Server,
+	serveNotes,
 	type TestPrincipal,
 	testCodec,
 	transported,
@@ -140,8 +143,9 @@ forEachCodec(() => {
 			const result = await raw.next("result");
 			expect(result).toMatchObject({ kind: "result", call: 5 });
 			expect(result.origin).toBeUndefined();
-			raw.send({ kind: "retry", hold: 7 });
-			expect(await worker.next("retry")).toEqual({ kind: "retry", origin: 1, hold: 7 });
+			raw.send({ kind: "retry", hold: 7, hops: 5 });
+			// Forwarded with its budget as it is: a relay visits no object.
+			expect(await worker.next("retry")).toEqual({ kind: "retry", origin: 1, hold: 7, hops: 5 });
 		});
 
 		it("give each downstream link its own origin, never reused", async () => {
@@ -372,6 +376,44 @@ forEachCodec(() => {
 			raw.send({ kind: "call", call: 0, hold: 0, method: wait });
 			expect(await raw.next("loading")).toEqual({ kind: "loading", hold: 0 });
 			expect((await raw.next("error")).error).toMatchObject({ error: { code: "unavailable" } });
+		});
+	});
+
+	describe("a parent link that is down (audit)", () => {
+		it("holds a hold arriving meanwhile on the parent path: it waits loading and binds on the next parent link", async () => {
+			const server = createHost<TestPrincipal>({
+				address: Server(),
+				principal: { kind: "server" },
+				onError: () => {},
+			});
+			await server.load(
+				[{ name: "@test/app", facet: defineFacet<TestPrincipal>((h) => void serveNotes(h)) }],
+				context,
+			);
+			const middle = createHost<TestPrincipal>({ principal: { kind: "server" }, onError: () => {} });
+			await middle.load([], context);
+			/** Connects the middle host to the server over a new link; returns the server's end. */
+			const up = (): Link => {
+				const [a, b] = memoryLinkPair();
+				server.accept(a, { principal: { kind: "owner" }, codec: testCodec() }, context);
+				middle.connect(b, { principal: { kind: "server" }, codec: testCodec() }, context);
+				return a;
+			};
+			const first = up();
+			await transported();
+			first.close();
+			await transported();
+			const tab = createHost<TestPrincipal>({ onError: () => {} });
+			await tab.load([], context);
+			const [a, b] = memoryLinkPair();
+			middle.accept(a, { principal: { kind: "owner" }, codec: testCodec() }, context);
+			tab.connect(b, { principal: { kind: "server" }, codec: testCodec() }, context);
+			const notes = tab.hold(Notes, { session: "S1" }, context);
+			await transported();
+			expect(notes.state.value).toEqual({ kind: "loading" });
+			up();
+			await transported();
+			expect(notes.state.value).toEqual({ kind: "live" });
 		});
 	});
 

@@ -90,7 +90,7 @@ export class ProviderSide {
 				this.#abort(message.call);
 				break;
 			case "retry":
-				this.#entries.get(message.hold)?.retry();
+				this.#entries.get(message.hold)?.retry(message);
 				break;
 			case "ack":
 				this.#ack();
@@ -128,15 +128,15 @@ export class ProviderSide {
 	}
 
 	/**
-	 * Ends with `error` every hold of this origin that acts for a principal `revoked` names and still waits: for `load`
-	 * (served here), or for its route's link (relayed).
+	 * Ends with `error` every hold of this origin that acts for a principal `revoked` names and holds nothing: served
+	 * here but unbound (before the publication, refused), or relayed and waiting for its route's link.
 	 */
-	revokeWaiting(revoked: (principal: Principal) => boolean, error: ChordError): void {
+	revokeUnbound(revoked: (principal: Principal) => boolean, error: ChordError): void {
 		for (const hold of [...this.#entries.values()]) {
 			// A hold arriving on a link acts for a principal: the link's, or one its parent named.
-			if (!hold.waiting || !revoked(hold.caller.principal!)) continue;
-			if (hold.kind === "served") hold.end(error);
-			else hold.revoked(error);
+			if (!revoked(hold.caller.principal!)) continue;
+			if (hold.kind === "served" && hold.unbound) hold.end(error);
+			else if (hold.kind === "relayed" && hold.waiting) hold.revoked(error);
 		}
 	}
 
@@ -251,6 +251,20 @@ export class ProviderSide {
 		this.#binding.delete(hold);
 	}
 
+	/**
+	 * A served hold left its object's binding (slice 7b §6, model §5): its unsent pending ops and a queued `bound` are
+	 * dropped (the ack slots of messages already sent stay until their `ack`), its calls in flight rejected with `error`
+	 * (each slot freed once).
+	 */
+	unbound(hold: Hold, error: ChordError): void {
+		this.unbind(hold);
+		for (const [id, call] of this.#calls) {
+			if (call.hold !== hold) continue;
+			if (call.kind === "served") call.abort.abort(error);
+			this.reply(id, { kind: "error", call: id, error: wireError(error) });
+		}
+	}
+
 	/** A hold's members changed in the current batch; its flush sends or queues it. */
 	touched(hold: Hold): void {
 		if (this.#touched.length === 0) this.link.host.batch.flushing((context) => this.#flush(context));
@@ -283,7 +297,7 @@ export class ProviderSide {
 
 	/**
 	 * A hold message: a protocol error for a live id or compressed params (params are never compressed), otherwise
-	 * admitted once `load` resolved (`Hold.start`). Its activation chain is kept only from a trusted link (Q5); its
+	 * admitted (`Hold.start`, placed once the host published). Its activation chain is kept only from a trusted link (Q5); its
 	 * decoded limit is the link's, or the smaller one a parent stamped (Q2), and travels with it when it is relayed.
 	 */
 	#hold(message: Extract<Message, { readonly kind: "hold" }>): void {
@@ -310,7 +324,7 @@ export class ProviderSide {
 		const limits = limit === link.limits.decoded ? link.limits : { part: link.limits.part, decoded: limit };
 		const hold = new Hold(id, this, this.#caller(message), limits);
 		this.#entries.set(id, hold);
-		void hold.start(request);
+		hold.start(request);
 	}
 
 	/**
@@ -336,10 +350,10 @@ export class ProviderSide {
 	 * A call: one on a hold this side does not know is ignored (Q1), more than this side's N at once and compressed
 	 * arguments from a child (clients never compress) are protocol errors. On a relayed hold it is forwarded, its
 	 * arguments checked against this link's part limit first (the bytes are here). On a served hold that is not bound
-	 * yet it is refused `not_ready`; its method is an index into the bound variant (one outside it is a protocol error)
-	 * and its arguments are opened and parsed here within the hold's limits (past one the call fails `too_large/part`; a
-	 * malformed part is a protocol error), absent ones `null`. Arguments this host must inflate asynchronously are
-	 * inflated first, then the call is handled again.
+	 * yet (nor binding afresh after a swap) it is refused `not_ready`; its method is an index into the bound variant (one
+	 * outside it is a protocol error) and its arguments are opened and parsed here within the hold's limits (past one
+	 * the call fails `too_large/part`; a malformed part is a protocol error), absent ones `null`. Arguments this host
+	 * must inflate asynchronously are inflated first, then the call is handled again.
 	 */
 	#call(message: Extract<Message, { readonly kind: "call" }>): void | Promise<void> {
 		if (this.#calls.has(message.call)) throw new Error(`call ${message.call}: the id is in use`);
@@ -360,7 +374,7 @@ export class ProviderSide {
 			hold.call(message);
 			return;
 		}
-		if (!hold.bound) {
+		if (!hold.callable) {
 			this.#refuse(message.call, new ChordError({ code: "not_ready", message: `hold ${hold.id}: not bound yet` }));
 			return;
 		}
@@ -445,12 +459,16 @@ export class ProviderSide {
 		// The side closed during the batch: nothing is sent.
 		if (holds.length === 0) return;
 		this.#touched = [];
+		// A hold touched in this batch may have left its binding since (a reload unbound it).
 		if (this.#free) {
-			this.#sendOwn({ kind: "state", holds: holds.map((hold) => hold.entry(context)) });
+			const entries: StateEntry[] = [];
+			for (const hold of holds) if (hold.bound) entries.push(hold.entry(context));
+			if (entries.length > 0) this.#sendOwn({ kind: "state", holds: entries });
 			return;
 		}
-		// Only a bound hold is touched, and a bound hold never waits for its binding.
+		// A bound hold never waits for its binding.
 		for (const hold of holds) {
+			if (!hold.bound) continue;
 			hold.queue();
 			this.#waiting.add(hold);
 		}
