@@ -295,8 +295,7 @@ async function main(): Promise<void> {
 	const createRuntime: CreateAgentSessionRuntimeFactory = async (options) => {
 		const needsTrust = hasTrustRequiringProjectResources(options.cwd);
 		const defaultTrust = startupSettings.getDefaultProjectTrust();
-		const projectTrusted =
-			args.approve ?? (!needsTrust || trustStore.get(options.cwd) === true || defaultTrust === "always");
+		const projectTrusted = args.approve ?? trustStore.get(options.cwd) ?? (!needsTrust || defaultTrust === "always");
 		const settingsManager = SettingsManager.create(options.cwd, options.agentDir, { projectTrusted });
 		const services = await createAgentSessionServices({
 			cwd: options.cwd,
