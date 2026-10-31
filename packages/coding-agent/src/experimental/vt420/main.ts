@@ -27,6 +27,7 @@ import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { Vt420App } from "./app.ts";
 import { startIntro } from "./intro.ts";
 import { Keymap, type Vt420KeyOverrides } from "./keys.ts";
+import progressExtension from "./progress.ts";
 
 interface Vt420Config {
 	keys?: Vt420KeyOverrides;
@@ -306,7 +307,7 @@ async function main(): Promise<void> {
 			resourceLoaderOptions: {
 				noExtensions: args.noExtensions,
 				noThemes: true,
-				extensionFactories: builtInExtensions,
+				extensionFactories: [...builtInExtensions, { name: "progress", factory: progressExtension, builtin: true }],
 			},
 		});
 		const diagnostics: AgentSessionRuntimeDiagnostic[] = [...services.diagnostics];
