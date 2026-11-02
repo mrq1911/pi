@@ -209,9 +209,12 @@ shows what loops, `/loop stop` ends it, and so does interrupting a run. While it
 says for how long, `∞ 12m`. Its runs show in the transcript, and come back with Up, as the `/loop` that sent them, in
 a resumed session too. It is an extension (`extensions/loop.ts`) that `install.sh` links into `~/.pi/agent/extensions`, so the npm pi loads it too, as it
 does `/rename`, another name for `/name`, for fingers trained on other agents.
-pi-vt420 adds one rule to the system prompt's rules, which the npm pi leaves out: a short sentence to the user when
-the model starts something new, finds something or changes plan, at least every few tool calls. Left alone, local
-models say what they are doing only in their thinking, which rolls by and folds away.
+Left alone, local models say what they are doing only in their thinking, which rolls by and folds away, so pi-vt420
+(not the npm pi) keeps them talking: a rule in the system prompt asks for a short sentence when the model starts
+something new, finds something or changes plan, and since small models forget a rule that far back, a note at the end
+of the request repeats it where they decide what to do next, on the prompt until the first reply (say what you are
+going to do) and on the latest tool result after three replies in a row without a word. Only that request carries the
+note; the session and the transcript never show it.
 Prompt templates and `/skill:name` work as in pi. `!cmd` runs a shell command; `!!cmd` keeps its output out of the context.
 
 `/login` prints the sign-in address or device code (the code in double-height letters) for another device and
