@@ -56,6 +56,11 @@
 			"types": "./dist/telemetry-sqlite/index.d.ts",
 			"import": "./dist/telemetry-sqlite/index.js"
 		},
+		"./telemetry-sqlite/node": {
+			"source": "./src/telemetry-sqlite/node.ts",
+			"types": "./dist/telemetry-sqlite/node.d.ts",
+			"import": "./dist/telemetry-sqlite/node.js"
+		},
 		"./http": {
 			"source": "./src/node/http/index.ts",
 			"types": "./dist/node/http/index.d.ts",
@@ -105,16 +110,6 @@
 			"source": "./src/node/tui/index.ts",
 			"types": "./dist/node/tui/index.d.ts",
 			"import": "./dist/node/tui/index.js"
-		},
-		"./old": {
-			"source": "./src/old/index.ts",
-			"types": "./dist/old/index.d.ts",
-			"import": "./dist/old/index.js"
-		},
-		"./old/node": {
-			"source": "./src/old/node.ts",
-			"types": "./dist/old/node.d.ts",
-			"import": "./dist/old/node.js"
 		},
 		"./package.json": "./package.json"
 	},

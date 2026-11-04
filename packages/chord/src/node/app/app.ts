@@ -5,15 +5,24 @@
 // and gives the app the controls it needs: the owner link, `applyChanges`, installs, export and import per address.
 
 import { join, resolve } from "node:path";
+import type { TelemetryContext } from "@earendil-works/pi-telemetry";
 import { type Context, withAbortSignal } from "../../context/index.ts";
 import { type Address, type HostKind, hostKind, type KindShape } from "../../contracts/index.ts";
 import type { Principal } from "../../data/index.ts";
 import { canonicalJson } from "../../data/principal.ts";
-import { createHost, type Facet, type Host, type HostError, type PluginFacet } from "../../host/index.ts";
+import {
+	createHost,
+	type Facet,
+	type Host,
+	type HostError,
+	type PluginFacet,
+	type PrincipalAttributes,
+} from "../../host/index.ts";
 import type { JsonValue } from "../../json.ts";
 import { openNodeSqliteDatabase } from "../../sqlite/node.ts";
 import { openStore, type Store, sqliteBackend } from "../../store/index.ts";
-import { themeChoiceFacet, themesFacet } from "../../surfaces/index.ts";
+import { localeChoiceFacet, themeChoiceFacet, themesFacet, translationsFacet } from "../../surfaces/index.ts";
+import { type TelemetryIngestTarget, telemetryIngestFacet } from "../../telemetry-ingest/index.ts";
 import type { Watchable } from "../../watch.ts";
 import { createHttp, type HttpComponent, type HttpError, type ListenAddress } from "../http/index.ts";
 import {
@@ -113,6 +122,18 @@ export type AppOptions<P extends Principal> = {
 	readonly web?: AppWeb;
 	/** The terminal surface (slice 11): the app's terminal entry; the `tui` facet kind. None: no terminal clients. */
 	readonly tui?: { readonly entry: string };
+	/**
+	 * The app's telemetry store (§29; decision "The server is the one place telemetry is stored"): the server's host,
+	 * its HTTP requests and the kit's ingest record to it (`createSqliteTelemetry`'s store). With one, every worker
+	 * records in memory and sends its spans and metrics to the server's `WorkerTelemetry`, and pages that record
+	 * (`startPage({ telemetry: true })`) theirs to `PageTelemetry`; carriers join them into one trace. None: NOOP.
+	 */
+	readonly telemetry?: TelemetryContext & TelemetryIngestTarget;
+	/**
+	 * Who a span was for (`createHost`'s `principalAttributes`): the server's hook, also stamped on the spans pages
+	 * send (the principal of their link). Each worker's is its `startWorker`'s.
+	 */
+	readonly principalAttributes?: PrincipalAttributes<P>;
 	readonly onError: (error: AppError) => void;
 } & (OwnerPrincipal extends P ? unknown : { readonly "the app's principal type must have { kind: 'owner' }": never });
 
@@ -185,6 +206,8 @@ export type KitStart = {
 	readonly principal: JsonValue;
 	readonly server: JsonValue;
 	readonly files: { readonly maxFile?: number; readonly maxTotal?: number };
+	/** Whether the server has a telemetry store: the worker then sends what it records to `WorkerTelemetry`. */
+	readonly telemetry: boolean;
 	/** The cap of uploads under way per `Files` object (`limits.uploads`). */
 	readonly uploads?: number;
 };
@@ -200,10 +223,13 @@ export async function startServer<P extends Principal>(options: AppOptions<P>, c
 	);
 	const { onError, api, limits = {} } = options;
 	const sessions = createSessions<P>(cookieSecret, { maxEphemeral: limits.ephemeralSessions });
+	const { telemetry, principalAttributes } = options;
 	const host = createHost<P>({
 		address: Server(),
 		principal: options.principal.server,
 		store,
+		telemetry,
+		...(principalAttributes === undefined ? {} : { principalAttributes }),
 		onError: (error) => onError({ kind: "host", error }),
 	});
 	const http = createHttp(
@@ -211,6 +237,7 @@ export async function startServer<P extends Principal>(options: AppOptions<P>, c
 		{
 			listen: options.listen ?? { host: "127.0.0.1", port: 0 },
 			links: { path: "/chord", opened: sessions.opened },
+			telemetry,
 			onError: (error) => onError({ kind: "http", error }),
 		},
 		context,
@@ -232,8 +259,10 @@ export async function startServer<P extends Principal>(options: AppOptions<P>, c
 		context,
 	);
 	const workers = new Map<string, Workers<HostKind>>();
+	// The address key of each worker by its principal's key: the principal its link stamps on its telemetry batches.
+	const workerHosts = new Map<string, string>();
 	for (const kind of options.workers ?? []) {
-		workers.set(kind.kind.kind, workersOf(host, kind, options, layout.dataDir, plugins, context));
+		workers.set(kind.kind.kind, workersOf(host, kind, options, layout.dataDir, plugins, workerHosts, context));
 	}
 	const link = new OwnerLink();
 	const core: PluginFacet<P>[] = [
@@ -253,7 +282,17 @@ export async function startServer<P extends Principal>(options: AppOptions<P>, c
 		{ name: "chord.app.files", facet: filesFacet(join(layout.server, "files"), options.files, limits.uploads) },
 		{ name: "chord.themes", facet: themesFacet() },
 		{ name: "chord.themes.choice", facet: themeChoiceFacet() },
+		{ name: "chord.translations", facet: translationsFacet() },
+		{ name: "chord.locale.choice", facet: localeChoiceFacet() },
 	];
+	if (telemetry !== undefined) {
+		const facet = telemetryIngestFacet<P>({
+			target: telemetry,
+			workerHost: (principal) => workerHosts.get(canonicalJson(principal as unknown as JsonValue, context)),
+			principalAttributes: (principal) => host.principalAttributes(principal, context),
+		});
+		core.push({ name: "chord.telemetry", facet });
+	}
 	const surfaces: Surface<P>[] = [];
 	const app = new RunningApp(host, http, workers, plugins, surfaces, { store, lock }, layout, options);
 	try {
@@ -342,6 +381,7 @@ function workersOf<P extends Principal>(
 	options: AppOptions<P>,
 	dataDir: string,
 	plugins: Plugins,
+	workerHosts: Map<string, string>,
 	context: Context,
 ): Workers<HostKind> {
 	const facet = kind.facet ?? "worker";
@@ -360,13 +400,16 @@ function workersOf<P extends Principal>(
 			authorize: (principal, address) => isServer(principal) || kind.authorize(principal, address),
 			principal: options.principal.worker,
 			start: async (address, ctx) => {
+				// Principals are JSON (they cross links).
+				const principal = options.principal.worker(address) as unknown as JsonValue;
+				workerHosts.set(canonicalJson(principal, ctx), address.key);
 				const kit: KitStart = {
 					dir: workerDirectory(dataDir, address),
 					facet,
-					// Principals are JSON (they cross links).
-					principal: options.principal.worker(address) as unknown as JsonValue,
+					principal,
 					server: options.principal.server as unknown as JsonValue,
 					files: { ...options.files },
+					telemetry: options.telemetry !== undefined,
 					...(options.limits?.uploads === undefined ? {} : { uploads: options.limits.uploads }),
 				};
 				return { kit, app: await kind.start(address, ctx) };

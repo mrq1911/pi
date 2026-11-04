@@ -9,6 +9,7 @@ import { ChordError } from "../data/index.ts";
 import { invalid } from "../data/internal.ts";
 import type { SqliteDatabase, SqliteExecutor } from "../sqlite/index.ts";
 import type { Batch } from "../state/internal.ts";
+import { chordMetrics } from "../telemetry.ts";
 import { IdAllocator } from "./allocator.ts";
 import type { ArchivePart } from "./archive.ts";
 import type { Backend } from "./backend.ts";
@@ -83,8 +84,11 @@ async function switchOutbox(db: SqliteDatabase, meta: MetaRow, outbox: boolean |
 export type CommitFence = {
 	/** At the step's entry: `false` rejects the commit `released` and writes nothing. */
 	admit(): boolean;
-	/** After `COMMIT`: adopts the commit, `ids` being its created documents' ids in the order of their writes. */
-	adopt(seq: number, ids: readonly number[]): void;
+	/**
+	 * After `COMMIT`: adopts the commit, `ids` being its created documents' ids in the order of their writes, `rows` the
+	 * table rows its writes changed.
+	 */
+	adopt(seq: number, ids: readonly number[], rows: number): void;
 };
 
 /**
@@ -420,7 +424,7 @@ export class ChordStore implements Store {
 		if (writes.length === 0) {
 			// An empty commit takes no seq; a throwing `adopt` stops the store as for any commit.
 			try {
-				fence.adopt(this.#lastSeq, []);
+				fence.adopt(this.#lastSeq, [], 0);
 			} catch (error) {
 				throw this.#fail(error);
 			}
@@ -453,11 +457,11 @@ export class ChordStore implements Store {
 		this.#lastSeq = seq;
 		this.#committedNextId = nextId;
 		for (const [name, record] of step.tables) this.#catalog.set(name, record);
-		const metrics = context.telemetry.metrics;
-		metrics?.counter("chord.store.commits").add(1);
-		metrics?.counter("chord.store.statements").add(step.statements);
+		const metrics = chordMetrics(context.telemetry.metrics);
+		metrics.counter("chord.store.commits").add(1);
+		metrics.counter("chord.store.statements").add(step.statements);
 		try {
-			fence.adopt(seq, step.created);
+			fence.adopt(seq, step.created, step.rows);
 		} catch (error) {
 			throw this.#fail(error);
 		}
@@ -507,9 +511,9 @@ export class ChordStore implements Store {
 			this.#committedNextId = last.nextId;
 			for (const [name, record] of last.tables) this.#catalog.set(name, record);
 		}
-		const metrics = context.telemetry.metrics;
-		metrics?.counter("chord.store.commits").add(written);
-		metrics?.counter("chord.store.statements").add(statements);
+		const metrics = chordMetrics(context.telemetry.metrics);
+		metrics.counter("chord.store.commits").add(written);
+		metrics.counter("chord.store.statements").add(statements);
 		try {
 			for (const [index, { seq, created }] of stored.entries()) receive(index, seq, created);
 		} catch (error) {

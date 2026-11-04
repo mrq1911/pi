@@ -67,12 +67,6 @@
 			"@earendil-works/chord/tui/launcher": [
 				"../../../packages/chord/src/node/tui/index.ts"
 			],
-			"@earendil-works/chord/old": [
-				"../../../packages/chord/src/old/index.ts"
-			],
-			"@earendil-works/chord/old/node": [
-				"../../../packages/chord/src/old/node.ts"
-			],
 			"@test/contracts/*": [
 				"../../chord/test/node/fixtures/plugins/contracts/*.ts"
 			],
@@ -195,7 +189,8 @@
 	"include": [
 		"./extensions/**/*",
 		"../../*/src/**/*.d.ts",
-		"../test/suite/regressions/8261-subagent-project-trust.test.ts"
+		"../test/suite/regressions/8261-subagent-project-trust.test.ts",
+		"../test/subagent-extension.test.ts"
 	],
 	"exclude": [
 		"**/node_modules/**",
