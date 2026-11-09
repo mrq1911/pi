@@ -201,10 +201,11 @@ one request across hosts, joined by the <strong>carriers</strong> calls carry.</
 script and a worker entry (design §23, &quot;The app kit&quot;). Everything else is a plugin. This chapter writes the three
 pieces of base code and starts the server.</p>
 <h3 id="the-principals">The principals</h3>
-<p>A <strong>principal</strong> says who is calling. The app defines the type; the kit needs a variant for the server, one for its
-workers, and adds the owner, <code>{ kind: &quot;owner&quot; }</code>, which the app&#39;s type must include:</p>
+<p>A <strong>principal</strong> says who is calling. The app defines the type; the kit needs a principal for the server, one for each of
+its workers (an app without worker kinds leaves it out) and one for the owner, whom the owner&#39;s sign-in names. The todo
+app gives the owner a variant of its own, <code>{ kind: &quot;owner&quot; }</code>; another app could make the owner one of its users:</p>
 <!-- quote: src/principals.ts -->
-<pre><code><span class="tk-c">// The todo app's principals: its server and list workers, the kit's owner, and the users who signed in with a name.</span>
+<pre><code><span class="tk-c">// The todo app's principals: its server and list workers, its owner, and the users who signed in with a name.</span>
 
 <span class="tk-c">/** Who someone is in the todo app. */</span>
 <span class="tk-k">export</span> <span class="tk-k">type</span> <span class="tk-t">TodoPrincipal</span> =
@@ -314,7 +315,11 @@ facet kinds (which files a plugin may have), and the principals:</p>
 			listen: { host: <span class="tk-s">"127.0.0.1"</span>, port: <span class="tk-n">0</span> },
 			api: API,
 			kinds: KINDS,
-			principal: { server: { kind: <span class="tk-s">"server"</span> }, worker: (address) =&gt; ({ kind: <span class="tk-s">"worker"</span>, list: address.key }) },
+			principal: {
+				server: { kind: <span class="tk-s">"server"</span> },
+				worker: (address) =&gt; ({ kind: <span class="tk-s">"worker"</span>, list: address.key }),
+				owner: { kind: <span class="tk-s">"owner"</span> },
+			},
 			<span class="tk-c">// The store the server writes: its own spans and metrics, and what the workers and recording pages send.</span>
 			telemetry: telemetry.store,
 			<span class="tk-c">// Who a span was for: a short key and a user's name (each worker's `startWorker` gets the same hook).</span>
@@ -371,12 +376,13 @@ console.<span class="tk-f">log</span>(<span class="tk-s">"   the owner signs in:
 console.<span class="tk-f">log</span>(<span class="tk-s">"   GET / signed in:"</span>, (<span class="tk-k">await</span> <span class="tk-f">fetch</span>(url, { headers: { cookie } })).status);</code></pre>
 <!-- output: main -->
 <pre class="plain"><code>1. owner link: http://127.0.0.1:&lt;port&gt;/_chord/owner#&lt;token&gt;
-   data directory: logs, owner-token, plugins, server, telemetry.sqlite, telemetry.sqlite-shm, telemetry.sqlite-wal, workers
+   data directory: cache, logs, owner-token, plugins, server, telemetry.sqlite, telemetry.sqlite-shm, telemetry.sqlite-wal, workers
    GET / signed out: 401
    the owner signs in: 200 chord-session=…
    GET / signed in: 200</code></pre>
 <p><code>startServer</code> made the data directory: <code>server/</code> (its store, the cookie secret, its files), <code>workers/</code> (one directory
-per worker), <code>plugins/</code> (the user&#39;s plugin root, beside the app&#39;s built-in one), <code>logs/</code> and <code>owner-token</code>;
+per worker), <code>plugins/</code> (the user&#39;s plugin root, beside the app&#39;s built-in one), <code>cache/</code> (each worker kind&#39;s base, written
+again at every start, and Node&#39;s compile cache for the workers), <code>logs/</code> and <code>owner-token</code>;
 <code>telemetry.sqlite</code> (with SQLite&#39;s <code>-shm</code> and <code>-wal</code> files) is the app&#39;s own, opened before the server starts
 (chapter XI). The page
 answered 401: HTTP <strong>denies by default</strong>, before any plugin code runs, unless a route says <code>public: true</code>.</p>
@@ -655,8 +661,8 @@ approves the code in a signed-in browser, and the client&#39;s next poll returns
 </section>
 
 <section class="chapter" id="page"><header class="opener"><div class="numeral">IV</div><h2>A Page</h2><p class="lede">A web entry, a web facet with React, the panels registry, and why a watch starts at the current value.</p></header>
-<p class="dropcap">A page is a client host in the browser. The kit builds its <strong>base bundle</strong> from the app&#39;s web entry at start (Chord,
-React, the app&#39;s web modules), serves the plugins&#39; web facets as small scripts beside it, and serves the page through
+<p class="dropcap">A page is a client host in the browser. The kit builds its <strong>base bundle</strong> from the app&#39;s web entry right after the
+server listens (Chord, React, the app&#39;s web modules; the page&#39;s first request waits for it), serves the plugins&#39; web facets as small scripts beside it, and serves the page through
 the app&#39;s template (design §23, &quot;Web and TUI&quot;).</p>
 <h3 id="the-page-39-s-registry">The page&#39;s registry</h3>
 <p>Plugins put panels on the page through a registry the API&#39;s web module declares, with Chord&#39;s React hooks re-exported
@@ -798,7 +804,7 @@ console.<span class="tk-f">log</span>(<span class="tk-s">"   the listener's firs
 <!-- output: main -->
 <pre class="plain"><code>4. the page loads:
    /_chord/web/base.&lt;hash&gt;.css
-   /_chord/web/plugin/@todo~lists.&lt;hash&gt;.css
+   /_chord/web/plugin/@todo~lists.&lt;hash&gt;.&lt;hash&gt;.css
    /_chord/web/plugins.&lt;hash&gt;.js
    /_chord/web/base.&lt;hash&gt;.js
    watch.value: 1 done
@@ -1185,7 +1191,7 @@ console.<span class="tk-f">log</span>(<span class="tk-s">"   ada adds '  tea  ':
 console.<span class="tk-f">log</span>(<span class="tk-s">"   ada adds ' ':"</span>, refused);</code></pre>
 <!-- output: main -->
 <pre class="plain"><code>9. lists changed, rolled out to: server, list, web, tui
-   on list|groceries: todo.store swapped, todo.todos(groceries) swapped
+   on list|groceries: todo.store restarted, todo.todos(groceries) restarted
    ada adds '  tea  ': [ ] tea (ada)
    ada adds ' ': { code: 'invalid', reason: 'args' }</code></pre>
 <p>The watcher marked <code>@todo/lists</code> dirty when the file changed; <code>applyChanges</code> rebuilt it (one esbuild call per facet)
@@ -1200,12 +1206,12 @@ and rolled it out host by host. On each host Chord stages the new code (it runs 
 </tr>
 </thead>
 <tbody><tr>
-<td>opens no natives, and neither does its new factory</td>
-<td><strong>swapped</strong> in place: new methods, the same documents; running calls finish on the old code</td>
+<td>live</td>
+<td><strong>restarted</strong>: running calls finish on the old code, new calls wait for the new code, the same documents and tables</td>
 </tr>
 <tr>
-<td>opens natives</td>
-<td><strong>restarted</strong>: calls wait, running ones finish, natives close and open again with the new code</td>
+<td>not live (failed, parked, activating)</td>
+<td><strong>retried</strong> on the new code</td>
 </tr>
 <tr>
 <td>its new code waits for a dependency</td>
@@ -1216,21 +1222,20 @@ and rolled it out host by host. On each host Chord stages the new code (it runs 
 <td><strong>ended</strong>; its holders wait until something serves it again</td>
 </tr>
 </tbody></table>
-<p>The store opens no natives, and neither does its new factory: its live query is not a native, Chord runs it. So the
-store was <strong>swapped</strong>, not restarted. The sequence on the list&#39;s worker:</p>
+<p>Both the store and the view were live, so both <strong>restarted</strong>. The sequence on the list&#39;s worker:</p>
 <ol>
-<li>The store&#39;s new attempt starts beside the old one: the same object, instance, table and line. Calls arriving now
-wait at a gate; calls already running finish on the old code.</li>
-<li>The new attempt runs its live query (the same read as at the first activation) and goes live; the gate opens,
-and references move to its members by name, each with one frame from its last value.</li>
-<li>The old attempt is sealed once its calls settled; its query leaves with it, so later commits run only the new one.</li>
+<li>The old attempts stay open: calls already running finish on the old code, and so does every call they make with
+their <code>ctx</code> (<strong>old work</strong>: the view&#39;s running <code>add</code> reaches the store&#39;s old attempt, never waiting for the new
+one). Calls arriving now are new work: they wait at a gate.</li>
+<li>Each old attempt is sealed once its calls drained and the requests its new factory made in staging are ready (the
+view&#39;s new code needs the store, whose old attempt still serves it). That takes as long as the running calls, at
+most <code>reloadDrainTimeout</code> (5 s); a call still running then is cut.</li>
+<li>The new attempt runs its factory, its live query runs again (the same read as at the first activation), and it
+goes live: the gate opens, and references move to its members by name, each with one frame from its last value.</li>
 </ol>
-<p>The views were swapped too, and before the store: Chord starts the fates dependents first, so each view&#39;s new
-attempt found the store still live, read its old values until step 2 and moved to its new members with one frame;
-its calls to the store waited at the gate. Had the store gone first, the views would have found it between steps 1
-and 2 and <strong>parked</strong> for that moment. Ada&#39;s reference never showed <code>loading</code>, and her next add was trimmed.
-Had the store kept its window as a one-time read in <code>self.open</code>, it would count as holding a native and <strong>restart</strong>
-at every reload of its plugin: running calls drained, natives closed and opened again, a new instance.</p>
+<p>Ada&#39;s reference stayed <code>live</code> while the old code drained, showed <code>loading</code> for a moment, then the new code&#39;s values;
+her next add was trimmed. Long work does not belong in a method: a call longer than the drain bound is cut at a
+reload, so it goes into a job.</p>
 <p>Ada&#39;s blank todo is now empty after trimming, so the store refused it with
 <code>invalid(&quot;args&quot;, …)</code> (chapter II): her client got <code>{ code: &quot;invalid&quot;, reason: &quot;args&quot; }</code>, Chord&#39;s own error, which
 crossed the worker&#39;s link and the server&#39;s as it was. Had the edit broken the plugin, that plugin alone would have kept its old code

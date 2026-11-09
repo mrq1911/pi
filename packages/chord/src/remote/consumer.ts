@@ -41,6 +41,8 @@ type OutgoingCall = {
 	readonly segments: readonly Uint8Array[] | undefined;
 	/** The caller's trace carrier (its `chord.call` span's), when its adapter propagates. */
 	readonly trace: TelemetryCarrier | undefined;
+	/** Whether the caller is old work of a reload here (`call.old`: the provider routes it to open old attempts). */
+	readonly old: boolean;
 	readonly resolve: (value: unknown) => void;
 	readonly reject: (error: unknown) => void;
 	id: number | undefined;
@@ -109,6 +111,7 @@ export class ConsumerSide {
 			args: part,
 			segments: payload?.segments,
 			trace: carrierOf(context.telemetry),
+			old: link.host.oldWork.of(context),
 			resolve: (value) => {
 				done();
 				resolve(value);
@@ -203,6 +206,7 @@ export class ConsumerSide {
 			...(args === undefined ? {} : { args }),
 			...(segments === undefined ? {} : { segments }),
 			trace,
+			...(call.old ? { old: true as const } : {}),
 		});
 	}
 
@@ -299,7 +303,8 @@ export class ConsumerSide {
 
 	/**
 	 * `loading`: the hold's object, or its relay's upstream, starts over; its calls still waiting for a slot reject
-	 * `unavailable` (they may name a method of the old variant).
+	 * `unavailable` (they may name a method of the old variant), its calls in flight wait for their reply (a provider's
+	 * `loading` keeps them; a relay's upstream drop answered them before).
 	 */
 	#loading(hold: number): void {
 		const holder = this.#entries.get(hold);

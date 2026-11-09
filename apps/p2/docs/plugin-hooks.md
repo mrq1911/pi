@@ -155,7 +155,7 @@ through `durableRegistry` (`src/runtime/durable.ts:41`).
 | --- | --- | --- | --- |
 | Tools | `tools` (`defineTool`, `types.ts:293`) | `parameters`, `execute(args, api, ctx)` returning `output`/`structuredOutput`/`details`; `replay: "safe" \| "unsafe"` (rerun after a crash, `:298`); `callers: ["model" \| "tools"]` (`:317`); `structuredOutputSchema` (`:311`); `deferred` (`:322`); `executionMode`, `prepareArguments`, `outputLimits`; `api.executeTool` for nested calls (`:281`) | coding-tools, artifacts, send-file, ports, conversations, sessions, subagents, dev-tools, codemode, powershell; `agent` is `callers: ["tools"]`, replay-safe with a schema (`plugins/agent/tool.ts:53-57`) |
 | Prompt | `sections` (`section(key, render, {tag})`, `types.ts:349`) | rendered before each request, in extension order | prompt (`plugins/prompt/worker.ts:185-191`), coding-tools, ports, conversations, dev-tools |
-| Hooks | `hooks: [hook(Task, handlers)]` | `GenerationTask`: `beforeRequest`, `afterResponse`, `onYield`, `afterTools` (`types.ts:757`); `ToolTask`: `beforeTool`, `afterTool` (`:778`); `CompactionTask`: `beforeCompact` (`:795`); handlers get `HookApi` (doc reads, memos, models, `:745`) | none yet |
+| Hooks | `hooks: [hook(Task, handlers)]` | `GenerationTask`: `beforeRequest`, `afterResponse`, `onYield`, `afterTools` (`types.ts:757`); `ToolTask`: `beforeTool`, `afterTool` (`:778`); `CompactionTask`: `beforeCompact` (`:795`); handlers get `HookApi` (doc reads, memos, models, `:745`) | cache-warming (`afterResponse`; the request from `HarnessParts.requestOf(message)`, a read-only `ModelRequest`) |
 | Wraps | `wraps: [wrapTool(tool, fn) \| wrapSection(section, fn)]` (`types.ts:360`) | replace another extension's tool or section where selected | none yet |
 | Tasks | `tasks: [defineTask(…)]` | durable background work, resolved by name | subagents (`Anchor`, `Reporter`, `plugins/subagents/tools.ts:72,118,473`) |
 
@@ -171,8 +171,9 @@ const extension = createPortsExtension(
 contribute(host, "p2.port-tools", (self) => self.register(Extensions, { [extension.name]: extension }));
 ```
 
-Who: tools run for whoever's input started the turn. Durable knows no principal; tools that need one derive it from
-the calling assistant entry with `originOf` (ports, dev-tools). Reload: a running phase keeps its snapshot; tool code
+Who: tools run for whoever's input started the turn. Durable knows no principal; a tool declares what it needs
+(`P2Tool`: `origin: "owner"`, `scope: "main"`) and the worker's registry checks it before each call (`guardTool`,
+`originOf` over the run's inputs; see p2-notes **Tool requirements**). Reload: a running phase keeps its snapshot; tool code
 that must survive reload reads live resources through getters (`plugins/codemode/worker.ts:37-43`).
 
 ### 3.2 Worker registries and locals
@@ -188,7 +189,7 @@ that must survive reload reads live resources through getters (`plugins/codemode
 | `HarnessEnvironments` | registry, key `"remote"` only | opens a remote machine (`at(cwd)` environments, one connection) per environment name | `src/runtime/worker.ts` | envs |
 | `ConversationLocations` | local, one provider | conversations following the session, own locations (`place`, `own`) | `src/runtime/worker.ts` | subagents (`plugins/subagents/worker.ts`) |
 | `Harness` | local, lifetime "host" | `harness` (native Durable Harness), `environments` (`session`, `locate(id)`, `at(location)`) | `src/runtime/worker.ts` | most worker plugins |
-| `WorkerProcess` | local, lifetime "host" | `init` (dataDir, generation, `values` from `WorkerInitValues`), `liveness` (`add("viewers" \| "activeCalls")`, `stopping`) | `src/runtime/worker.ts:165` | chat and workspace (viewers), codemode (`stopping`) |
+| `WorkerProcess` | local, lifetime "host" | `init` (dataDir, generation, `values` from `WorkerInitValues`), `liveness` (`add("viewers" \| "activeCalls")`, `stopping`) | `src/runtime/worker.ts` | workspace (viewers), participants' calls (`activeCalls`, the relocation fence), codemode (`stopping`) |
 | `Conversation` | local (chat) | `submit` (input with own `entry` kind), `write` (display-only entry), `stop`, `history`, `compact`, `reset`, `runShell`… | `plugins/chat/contract.ts:140-189` | chat-mode, conversations |
 
 ```ts
@@ -313,8 +314,9 @@ Prompt registers templates and skills (`plugins/prompt/tui.ts:87`).
 
 | Registry | Key → value | Order | Users |
 | --- | --- | --- | --- |
-| `TuiToolRenderers` | tool name → pi `ToolRenderers` (`renderCall`, `renderResult`, `renderShell`; `src/tui/tools/types.ts:15-62`) | overrides built-ins | artifacts, ports, send-file, subagents |
-| `TuiToolRendererResolvers` | `<order>:<plugin>` → `(toolName, next) => renderers` | key order, then the registry, then built-ins (`src/tui/tools/index.ts:20-28`) | none yet |
+| `TuiToolRenderers` | tool name → pi `ToolRenderers` (`renderCall`, `renderResult`, `renderShell`, p2's `nestedCalls`; `src/tui/tools/types.ts`) | — (without one: pi's generic card) | coding-tools, powershell, codemode, artifacts, ports, send-file, subagents, history |
+| `TuiToolRendererResolvers` | `<order>:<plugin>` → `(toolName, next) => renderers` | key order, then the registry (`src/tui/tools/index.ts`); the registry's `nestedCalls` stays | quiet-tools (`10:`: one line per call, full content when expanded or failed) |
+| `TuiSettingFields` | `<plugin>.<name>` → `/settings` row (label, values, fallback), stored at `settings.plugins.<plugin>.<name>` of the visitor's prefs; read with `pluginSetting`; resolvers get the settings, a change redraws every card (`src/runtime/tui-preferences.ts`) | after the built-in rows, key order | quiet-tools |
 | `TuiEntryRenderers` | entry kind → `(entry, ctx) => Component \| undefined` (replaces the display; `undefined` hides) | — | core `p2.shell` (`src/tui/core-commands.ts:290`) |
 | `TuiMarkdownTransformers` | `<order>:<plugin>` → pi `MarkdownTransformer` | key order | core `00:mermaid` |
 | `TranscriptEntries` | shared with web (4.3) | — | chat-mode |
@@ -402,7 +404,7 @@ Reference: `packages/coding-agent/docs/extensions.md`.
 
 | pi 1.0 | p2 today | Gap |
 | --- | --- | --- |
-| `pi.on()` lifecycle: `session_start`/`shutdown`, `before_agent_start`, `context`, `message_end`, `tool_call`/`tool_result`, `turn_end`, `agent_before_settle`, `session_before_compact`, `user_bash`, `input`, `provider_stream_event`, `cache_warming_decision` | Chord resources for start/shutdown; Durable hooks cover `context` (`beforeRequest`), `message_end` (notify-only `afterResponse`), `tool_call`/`tool_result`, `turn_end` (`afterTools`), settle (`onYield`), compaction; `SendRouters` covers `Chat.send` input only | No input hook for peer/subagent/agent inputs; no `user_bash` (shell is hard-coded in chat); no stream events; no whole-prompt override (sections and `wrapSection` instead). No plugin uses hooks yet, so they are untested in p2. |
+| `pi.on()` lifecycle: `session_start`/`shutdown`, `before_agent_start`, `context`, `message_end`, `tool_call`/`tool_result`, `turn_end`, `agent_before_settle`, `session_before_compact`, `user_bash`, `input`, `provider_stream_event`, `cache_warming_decision` | Chord resources for start/shutdown; Durable hooks cover `context` (`beforeRequest`), `message_end` (notify-only `afterResponse`), `tool_call`/`tool_result`, `turn_end` (`afterTools`), settle (`onYield`), compaction; `SendRouters` covers `Chat.send` input only | No input hook for peer/subagent/agent inputs; no `user_bash` (shell is hard-coded in chat); no stream events; no whole-prompt override (sections and `wrapSection` instead). Only cache-warming uses hooks (`afterResponse`, which gets the message only; the request it repeats comes from `HarnessParts.requestOf`); pi's `cache_warming_decision` has no p2 counterpart. |
 | `registerTool` with `exposure`, `namespace`, `annotations`, `prepareLoadout`, `reachesTools` | `callers`, `deferred`, replay policy | No annotations (no approval policy), no namespaces; `tool_search` not installed. |
 | `registerCommand`, `registerShortcut` | TUI only | No web commands or shortcuts. |
 | `registerFlag` | none | Plugins get configuration only via env vars or their own files; `settings.json` is closed. |

@@ -90,12 +90,13 @@ pieces of base code and starts the server.
 
 ## The principals
 
-A **principal** says who is calling. The app defines the type; the kit needs a variant for the server, one for its
-workers, and adds the owner, `{ kind: "owner" }`, which the app's type must include:
+A **principal** says who is calling. The app defines the type; the kit needs a principal for the server, one for each of
+its workers (an app without worker kinds leaves it out) and one for the owner, whom the owner's sign-in names. The todo
+app gives the owner a variant of its own, `{ kind: "owner" }`; another app could make the owner one of its users:
 
 <!-- quote: src/principals.ts -->
 ```ts
-// The todo app's principals: its server and list workers, the kit's owner, and the users who signed in with a name.
+// The todo app's principals: its server and list workers, its owner, and the users who signed in with a name.
 
 /** Who someone is in the todo app. */
 export type TodoPrincipal =
@@ -230,7 +231,11 @@ export function startTodo(
 			listen: { host: "127.0.0.1", port: 0 },
 			api: API,
 			kinds: KINDS,
-			principal: { server: { kind: "server" }, worker: (address) => ({ kind: "worker", list: address.key }) },
+			principal: {
+				server: { kind: "server" },
+				worker: (address) => ({ kind: "worker", list: address.key }),
+				owner: { kind: "owner" },
+			},
 			// The store the server writes: its own spans and metrics, and what the workers and recording pages send.
 			telemetry: telemetry.store,
 			// Who a span was for: a short key and a user's name (each worker's `startWorker` gets the same hook).
@@ -299,14 +304,15 @@ console.log("   GET / signed in:", (await fetch(url, { headers: { cookie } })).s
 <!-- output: main -->
 ```text
 1. owner link: http://127.0.0.1:<port>/_chord/owner#<token>
-   data directory: logs, owner-token, plugins, server, telemetry.sqlite, telemetry.sqlite-shm, telemetry.sqlite-wal, workers
+   data directory: cache, logs, owner-token, plugins, server, telemetry.sqlite, telemetry.sqlite-shm, telemetry.sqlite-wal, workers
    GET / signed out: 401
    the owner signs in: 200 chord-session=…
    GET / signed in: 200
 ```
 
 `startServer` made the data directory: `server/` (its store, the cookie secret, its files), `workers/` (one directory
-per worker), `plugins/` (the user's plugin root, beside the app's built-in one), `logs/` and `owner-token`;
+per worker), `plugins/` (the user's plugin root, beside the app's built-in one), `cache/` (each worker kind's base, written
+again at every start, and Node's compile cache for the workers), `logs/` and `owner-token`;
 `telemetry.sqlite` (with SQLite's `-shm` and `-wal` files) is the app's own, opened before the server starts
 (chapter XI). The page
 answered 401: HTTP **denies by default**, before any plugin code runs, unless a route says `public: true`.
@@ -654,8 +660,8 @@ approves the code in a signed-in browser, and the client's next poll returns its
 
 # A Page {#page lede="A web entry, a web facet with React, the panels registry, and why a watch starts at the current value."}
 
-A page is a client host in the browser. The kit builds its **base bundle** from the app's web entry at start (Chord,
-React, the app's web modules), serves the plugins' web facets as small scripts beside it, and serves the page through
+A page is a client host in the browser. The kit builds its **base bundle** from the app's web entry right after the
+server listens (Chord, React, the app's web modules; the page's first request waits for it), serves the plugins' web facets as small scripts beside it, and serves the page through
 the app's template (design §23, "Web and TUI").
 
 ## The page's registry
@@ -827,7 +833,7 @@ await watch.stop();
 ```text
 4. the page loads:
    /_chord/web/base.<hash>.css
-   /_chord/web/plugin/@todo~lists.<hash>.css
+   /_chord/web/plugin/@todo~lists.<hash>.<hash>.css
    /_chord/web/plugins.<hash>.js
    /_chord/web/base.<hash>.js
    watch.value: 1 done
@@ -1343,7 +1349,7 @@ console.log("   ada adds ' ':", refused);
 <!-- output: main -->
 ```text
 9. lists changed, rolled out to: server, list, web, tui
-   on list|groceries: todo.store swapped, todo.todos(groceries) swapped
+   on list|groceries: todo.store restarted, todo.todos(groceries) restarted
    ada adds '  tea  ': [ ] tea (ada)
    ada adds ' ': { code: 'invalid', reason: 'args' }
 ```
@@ -1355,26 +1361,25 @@ and rolled it out host by host. On each host Chord stages the new code (it runs 
 
 | The object | Fate |
 | --- | --- |
-| opens no natives, and neither does its new factory | **swapped** in place: new methods, the same documents; running calls finish on the old code |
-| opens natives | **restarted**: calls wait, running ones finish, natives close and open again with the new code |
+| live | **restarted**: running calls finish on the old code, new calls wait for the new code, the same documents and tables |
+| not live (failed, parked, activating) | **retried** on the new code |
 | its new code waits for a dependency | **parked** until the dependency is live |
 | its type was removed | **ended**; its holders wait until something serves it again |
 
-The store opens no natives, and neither does its new factory: its live query is not a native, Chord runs it. So the
-store was **swapped**, not restarted. The sequence on the list's worker:
+Both the store and the view were live, so both **restarted**. The sequence on the list's worker:
 
-1. The store's new attempt starts beside the old one: the same object, instance, table and line. Calls arriving now
-   wait at a gate; calls already running finish on the old code.
-2. The new attempt runs its live query (the same read as at the first activation) and goes live; the gate opens,
-   and references move to its members by name, each with one frame from its last value.
-3. The old attempt is sealed once its calls settled; its query leaves with it, so later commits run only the new one.
+1. The old attempts stay open: calls already running finish on the old code, and so does every call they make with
+   their `ctx` (**old work**: the view's running `add` reaches the store's old attempt, never waiting for the new
+   one). Calls arriving now are new work: they wait at a gate.
+2. Each old attempt is sealed once its calls drained and the requests its new factory made in staging are ready (the
+   view's new code needs the store, whose old attempt still serves it). That takes as long as the running calls, at
+   most `reloadDrainTimeout` (5 s); a call still running then is cut.
+3. The new attempt runs its factory, its live query runs again (the same read as at the first activation), and it
+   goes live: the gate opens, and references move to its members by name, each with one frame from its last value.
 
-The views were swapped too, and before the store: Chord starts the fates dependents first, so each view's new
-attempt found the store still live, read its old values until step 2 and moved to its new members with one frame;
-its calls to the store waited at the gate. Had the store gone first, the views would have found it between steps 1
-and 2 and **parked** for that moment. Ada's reference never showed `loading`, and her next add was trimmed.
-Had the store kept its window as a one-time read in `self.open`, it would count as holding a native and **restart**
-at every reload of its plugin: running calls drained, natives closed and opened again, a new instance.
+Ada's reference stayed `live` while the old code drained, showed `loading` for a moment, then the new code's values;
+her next add was trimmed. Long work does not belong in a method: a call longer than the drain bound is cut at a
+reload, so it goes into a job.
 
 Ada's blank todo is now empty after trimming, so the store refused it with
 `invalid("args", …)` (chapter II): her client got `{ code: "invalid", reason: "args" }`, Chord's own error, which

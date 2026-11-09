@@ -4,18 +4,23 @@ import {
 	ArtifactIcon,
 	ArtifactPicker,
 	closeLayers,
+	closePanel,
 	FilePanel,
 	OpenViewer,
 	openLayer,
+	openPanel,
 	SessionId,
 	Slots,
+	ToolActivities,
 	useObject,
 	useReadable,
 	useRoute,
+	useSidePanelShown,
 	type ViewerItem,
 } from "@p2/app/v1/web";
 import type { ReactNode } from "react";
 import { DownloadInfoSchema } from "../files/contract.ts";
+import { artifactActivity } from "./activity.tsx";
 import { ArtifactInfoSchema, ArtifactList } from "./contract.ts";
 import { ArtifactPanel } from "./preview.tsx";
 
@@ -24,6 +29,9 @@ const ViewerSchema = union([
 	obj({ kind: literal("artifact"), artifact: ArtifactInfoSchema }, { open: true }),
 ]);
 const isViewer = compile(ViewerSchema).check;
+
+/** The side panel's name for the artifact list (`Route.panel`). */
+const PANEL = "artifacts";
 
 /** Untrusted URL metadata is only a locator. HTTP routes authorize every content fetch. */
 function viewer(overlay: string | undefined): ViewerItem | undefined {
@@ -43,6 +51,7 @@ function Content({ children }: { children?: ReactNode }) {
 		route.session ? { session: route.session, conversation: route.conversation ?? 1 } : undefined,
 	);
 	const artifacts = useReadable(list?.artifacts) ?? [];
+	const shown = useSidePanelShown();
 
 	const top = route.layers.at(-1);
 	const item = viewer(top?.kind === "viewer" && top.name === "artifacts" ? top.locator : undefined);
@@ -52,11 +61,11 @@ function Content({ children }: { children?: ReactNode }) {
 		<SessionId.Provider value={route.session}>
 			<OpenViewer.Provider value={open}>
 				{children}
-				{top?.kind === "sheet" && top.name === "artifacts" && (
+				{route.panel === PANEL && shown && (
 					<ArtifactPicker
 						artifacts={artifacts.toReversed()}
 						onOpen={(artifact) => open({ kind: "artifact", artifact })}
-						onClose={closeLayers}
+						onClose={closePanel}
 					/>
 				)}
 
@@ -91,12 +100,14 @@ function ArtifactButton() {
 	const artifacts = useReadable(list?.artifacts) ?? [];
 	const count = artifacts.length;
 	if (!count) return null;
+	const open = route.panel === PANEL;
 	return (
 		<button
 			type="button"
-			className="artifact-button"
+			className={`artifact-button ${open ? "on" : ""}`}
 			aria-label={`Artifacts (${count})`}
-			onClick={() => openLayer({ kind: "sheet", name: "artifacts" })}
+			aria-pressed={open}
+			onClick={() => (open ? closePanel() : openPanel(PANEL))}
 		>
 			<ArtifactIcon />
 			<span>{count}</span>
@@ -107,5 +118,6 @@ function ArtifactButton() {
 export default defineFacet((host) => {
 	contribute(host, "p2.web-artifacts", (self) => {
 		self.contribute(Slots, { "chat-content": Content, "artifact-actions": ArtifactButton });
+		self.contribute(ToolActivities, { artifact: artifactActivity });
 	});
 });

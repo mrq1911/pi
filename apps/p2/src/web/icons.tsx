@@ -94,6 +94,13 @@ export const FolderIcon = ({ size = 16 }: { size?: number }) => (
 		<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
 	</Icon>
 );
+/** A padlock: a sandboxed environment. */
+export const LockIcon = ({ size = 14 }: { size?: number }) => (
+	<Icon size={size}>
+		<rect x="5" y="11" width="14" height="10" rx="2" />
+		<path d="M8 11V7a4 4 0 0 1 8 0v4" />
+	</Icon>
+);
 /** A window with a prompt. */
 export const TerminalIcon = ({ size = 15 }: { size?: number }) => (
 	<Icon size={size}>
@@ -112,8 +119,8 @@ export const CommentIcon = () => (
 		<path d="M20 15a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z" />
 	</Icon>
 );
-export const ReplyIcon = () => (
-	<Icon size={16}>
+export const ReplyIcon = ({ size = 16 }: { size?: number }) => (
+	<Icon size={size}>
 		<path d="M9 14 4 9l5-5" />
 		<path d="M4 9h11a5 5 0 0 1 5 5v3" />
 	</Icon>
@@ -129,12 +136,21 @@ export const FileIcon = () => (
 		<path d="M14 3v5h5" />
 	</Icon>
 );
+/** A fork in a line: a `/tree` branch. */
+export const BranchIcon = ({ size = 15 }: { size?: number }) => (
+	<Icon size={size}>
+		<circle cx="6" cy="5" r="2" />
+		<circle cx="6" cy="19" r="2" />
+		<circle cx="18" cy="7" r="2" />
+		<path d="M6 7v10M18 9c0 5-12 3-12 8" />
+	</Icon>
+);
 export const PencilIcon = () => (
 	<Icon size={15}>
 		<path d="M4 20h4L19 9l-4-4L4 16z" />
 	</Icon>
 );
-/** Angle brackets: code mode scripts. */
+/** Angle brackets: scripts. */
 export const CodeIcon = () => (
 	<Icon size={15}>
 		<path d="M8 7l-5 5 5 5M16 7l5 5-5 5" />

@@ -3,5 +3,8 @@
 export { sendDevCommand } from "../../hosts/dev-channel.ts";
 export * from "../../runtime/commits.ts";
 export * from "../../runtime/conversation-stats.ts";
+export * from "../../runtime/main-conversation.ts";
 export * from "../../runtime/origin.ts";
+export * from "../../runtime/session-lock-doc.ts";
+export * from "../../runtime/tool-access.ts";
 export * from "../../runtime/worker.ts";

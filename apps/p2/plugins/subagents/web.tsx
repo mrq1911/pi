@@ -1,15 +1,27 @@
-import { contribute, defineFacet } from "@p2/app/v1";
-import { conversationRoute, Slots, useNavigation, useRoute } from "@p2/app/v1/web";
+import { contribute, defineFacet, liveIn } from "@p2/app/v1";
+import {
+	conversationRoute,
+	Slots,
+	ToolActivities,
+	useNavigation,
+	useObject,
+	useReadable,
+	useRoute,
+} from "@p2/app/v1/web";
+import { Sessions } from "../sessions/contract.ts";
+import { subagentActivity } from "./activity.tsx";
 
 function ParentLink() {
 	const nav = useNavigation();
 	const route = useRoute();
-	if (!route.session || (route.conversation ?? 1) === 1) return null;
+	const rows = useReadable(liveIn(useObject(Sessions, {}), "owner", "guest")?.sessions);
+	const main = rows?.find((row) => row.id === route.session)?.main;
+	if (!route.session || main === undefined || route.conversation === main) return null;
 	return (
 		<button
 			type="button"
 			className="row-button"
-			onClick={() => void nav.backOrPush(conversationRoute(route, route.session))}
+			onClick={() => void nav.backOrPush(conversationRoute(route, route.session, main))}
 		>
 			Back to main conversation
 		</button>
@@ -19,5 +31,6 @@ function ParentLink() {
 export default defineFacet((host) => {
 	contribute(host, "p2.web-subagents", (self) => {
 		self.contribute(Slots, { "chat-parent": ParentLink });
+		self.contribute(ToolActivities, { subagent: subagentActivity });
 	});
 });

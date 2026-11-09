@@ -19,6 +19,10 @@ export type Route = {
 	conversation: number;
 	layers: Layer[];
 	workspace?: WorkspaceLocation;
+	/** The transcript block shown in the side panel (SidePanel.tsx); never together with `panel`. */
+	activity?: { row: string; step?: string };
+	/** A plugin's panel shown in the side panel, by its name; never together with `activity`. */
+	panel?: string;
 	terminal?: string;
 	startTerminal?: boolean;
 };
@@ -189,6 +193,33 @@ export function forgetLastConversation(): void {
 	try {
 		localStorage.removeItem(LAST_STORAGE);
 	} catch {}
+}
+
+/** Sessions whose main conversation is not 1 (a `/tree` branch), as the catalog last said, for short links. */
+const MAINS_STORAGE = "p2-mains";
+
+/** Remembers the main conversations of `rows` that are not 1 (the Sidebar writes them as the catalog changes). */
+export function rememberMains(rows: readonly { readonly id: string; readonly main: number }[]): void {
+	try {
+		localStorage.setItem(
+			MAINS_STORAGE,
+			JSON.stringify(Object.fromEntries(rows.filter((row) => row.main !== 1).map((row) => [row.id, row.main]))),
+		);
+	} catch {}
+}
+
+/**
+ * The main conversation a short link (`/s/<id>`, conversation 1) opens: the session's `/tree` branch as last known
+ * on this device, so the page holds that conversation first instead of conversation 1 and a redirect.
+ */
+export function knownMain(session: string): number {
+	try {
+		const mains = JSON.parse(localStorage.getItem(MAINS_STORAGE) ?? "{}") as Record<string, unknown>;
+		const main = mains[session];
+		return typeof main === "number" ? main : 1;
+	} catch {
+		return 1;
+	}
 }
 
 /** Whether the page runs as the installed app (a home-screen app), not in a browser tab. */

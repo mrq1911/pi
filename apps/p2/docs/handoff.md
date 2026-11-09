@@ -44,6 +44,9 @@ replacing the old facet/service runtime and the `pi-client`, `pi-protocol` and `
   ```
   Update: `git pull`, `npm install --ignore-scripts` at the root if dependencies changed, then **Restart** in the app or
   `npm run reload -- --restart` (plugin changes: **Reload**).
+- **Per-host stores:** a p2 with per-host stores refuses a data directory in the older layout. Once: stop p2,
+  `npm run migrate-data -- --dry-run`, then `npm run migrate-data` (old files go to `~/.pi/p2/pre-files-backup/`;
+  `scripts/data-report.ts` before and `--compare` after), then start it (`docs/p2-notes.md`, Migration).
 - **Tunnel:** ngrok as a termux-services (runit) service, `$PREFIX/var/service/ngrok/run`, forwarding
   `https://pim.ngrok.pro` to port 8787 (`sv status|restart $PREFIX/var/service/ngrok`; logs in
   `$PREFIX/var/log/ngrok/current`).
@@ -58,17 +61,19 @@ npm run dev                  # dev mode: apply plugin changes, including web fac
 npm start                    # without the dev supervisor
 P2_FAKE=1 npm start          # fake model, no provider needed
 npm run owner-link [url]     # one-time owner sign-in link for another device (run on the machine itself)
-npm run tui [url]            # TUI (Node >= 26.5.1); on loopback it signs in as owner automatically
+npm run tui [url]            # TUI (Node >= 26.5.1); on loopback it signs in with the data directory's owner key
 npm run reload [plugins] [--restart]
 npm run check                # Biome + tsc
 npm test                     # full suite; TUI tests need Node 26, browser tests need CHROMIUM_BIN
 ```
 
 Environment variables: `docs/p2-notes.md` (Running). Configuration in the data dir: `models.json`, `settings.json`
-(incl. `codemode`, default on in p2), `envs.json`, `mcp.json`, `auth.json`, `radius.json`, `forwards.json`.
+(incl. `codemode`, default on in p2), `envs.json`, `projects.json`, `mcp.json`, `auth.json`, `radius.json`, `forwards.json`.
 
-**Sign-in.** Requests from the device itself are the owner. Other devices get owner rights with a link from `npm
-run owner-link` (single use, 10 minutes, long-lived signed cookie). Guests join through share links. Requests other
+**Sign-in.** Loopback alone is nobody (shared machines). A browser on the host signs in once per profile with the
+token the server prints at startup (pasted into the sign-in page); the TUI and scripts sign in with the data directory's owner key (README, Signing
+in on this machine). Other devices get owner rights with a link from `npm run owner-link` (single use, 10 minutes,
+long-lived signed cookie). Guests join through share links. Requests other
 websites make never carry owner rights. Sign out per device or all devices in the Devices sheet.
 
 **Dev mode.** A file watcher only marks plugins dirty; reloads are explicit (button, `npm run reload`, the
@@ -95,9 +100,9 @@ verifying an agent's files on their own before committing. Node 24: `~/node-v24.
   `tui*.ts` (launcher, sandbox, filter, grants), `dev*.ts` (dev supervisor).
 - **Runtime** (`src/runtime`): shared contracts and helpers (principals, worker and Harness, Durable registry,
   extension switches, input entries, settings, logs, fetch).
-- **Plugins**: chat, chat-mode, sessions, subagents, agent (one-shot agents), codemode, coding-tools, prompt,
+- **Plugins**: chat, chat-mode, sessions, subagents, agent (one-shot agents), codemode, cache-warming, coding-tools, prompt,
   models, login, search, status, drafts, files, send-file, artifacts, workspace, file-index, terminals, envs, mcp, ports,
-  radius, sharing, devices, proxy-marker, logs, dev-tools, powershell, web-shell. Before writing one, read Chord's
+  radius, sharing, devices, proxy-marker, logs, dev-tools, powershell, web-shell, projects. Before writing one, read Chord's
   tutorial (`packages/chord/docs/tutorial/`) and plugin guide (`packages/chord/docs/plugin-authoring.md`), then an
   existing p2 plugin of the same shape.
 - **Locations:** every conversation works at `{ env, cwd }`: the main one at the session's, subagents spawned with a
@@ -155,9 +160,9 @@ From `AGENTS.md` and this project's history:
 3. **Cleanup leftovers:** two HTTP helpers were not merged because their semantics differ (byte ranges: files
    serves `bytes=-` whole, workspace answers 416; body readers: sharing answers 400 past the limit, devices 413);
    decide one behavior each.
-4. **MCP:** `plugins/mcp` (WP6 and WP7 of `docs/mcp-durable.md`: owner `mcp.json`, host stdio and HTTP, code mode
-   tools (`tool_search` without code mode), servers on environments, project `.pi/mcp.json`); OAuth (WP8) and code mode namespaces (WP9)
-   are open.
+4. **MCP:** `plugins/mcp` (WP6-8 of `docs/mcp-durable.md`: owner `mcp.json`, host stdio and HTTP, code mode
+   tools (`tool_search` without code mode), servers on environments, project `.pi/mcp.json`, OAuth sign-in); code mode
+   namespaces (WP9) are open, and whether Radius sends its cookie on a sign-in's redirect back is unverified.
 5. **npm:** deprecate `@earendil-works/pi-client`, `pi-protocol` and `pi-server` (1.1.0), which no longer exist.
 6. `docs/p2-notes.md` TODO: the TypeScript 5.9.3 pin (Termux), an isolating plugin loader, sandboxing third-party
    facets.
@@ -173,6 +178,9 @@ From `AGENTS.md` and this project's history:
 | `README.md`, `DEV.md` | running, deployment behind a proxy, TUI sign-in and isolation |
 | `docs/p2-notes.md` | decisions, configuration, plugin-by-plugin notes |
 | `docs/p2-tui-port.md` | TUI design, as-built notes, open phases |
+| `docs/optimistic-ui.md` | optimistic UI: the pattern for actions, pending states and loads (web and terminal) |
+| `docs/tool-ui.md` | how a plugin shows its tool (web and TUI registrations), with a complete example plugin |
 | `docs/workflows.md` | code mode workflows with one-shot agents |
+| `docs/tree.md` | `/tree`: branches of the main conversation as Durable forks |
 | `docs/remote-envs.md` | SSH environments |
 | `packages/chord/docs/` | Chord v2's design, slices and guides; `tutorial/` for writing plugins |

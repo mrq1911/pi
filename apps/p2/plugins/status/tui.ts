@@ -160,7 +160,7 @@ export class FooterSurface implements TuiSurface {
 		if (branch) where += ` (${branch})`;
 		if (session?.title) where += `${where ? " • " : ""}${session.title}`;
 		// The subagent crumb (the web's top-bar crumb): the session › the shown subagent conversation.
-		if (this.runtime.conversation !== 1) {
+		if (this.runtime.conversation !== (session?.main ?? 1)) {
 			const child = this.children[this.session ?? ""]?.find(
 				(row) => row.conversationId === this.runtime.conversation,
 			);
@@ -268,14 +268,16 @@ export default tuiFacet("footer", (runtime) => new FooterSurface(runtime), {
 		category: "Owner",
 		when: "owner && !overlay",
 		slash: { name: "retry-worker" },
+		// Long work: the pending line shows at once, the outcome when the worker started (or failed again).
 		run: (ctx) => {
 			const session = ctx.identity.session;
 			if (!session) return;
+			ctx.notify("Retrying the session worker…");
 			return ctx.host.root(async (root) => {
 				const control = await root.get(WorkerControl, { session });
 				if (control.variant !== "owner") return;
 				await control.restart(root);
-				ctx.notify("Retrying the session worker");
+				ctx.notify("Session worker started");
 			}, BACKGROUND_CONTEXT);
 		},
 	},

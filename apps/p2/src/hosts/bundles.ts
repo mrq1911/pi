@@ -108,6 +108,8 @@ export async function buildTuiBundle(plugins: readonly string[], directory = plu
 		],
 		platform: "node",
 		target: "node26",
+		// Readable function and class names in the stack the launcher prints when the sandbox crashes (~4% size).
+		keepNames: true,
 		sourcemap: false,
 	});
 	const source = result.outputFiles[0]!.text;
@@ -124,7 +126,8 @@ const browser = {
 	...common,
 	platform: "browser",
 	target: "es2022",
-	loader: { ".wasm": "file" },
+	// Fonts (Elanor's, from its packages' CSS) are files of the bundle, named by their content.
+	loader: { ".wasm": "file", ".woff2": "file" },
 	define: { "process.env.NODE_ENV": '"production"' },
 } as const satisfies BuildOptions;
 
@@ -178,6 +181,7 @@ const TYPES: Readonly<Record<string, string>> = {
 	".css": "text/css; charset=utf-8",
 	".map": "application/json",
 	".wasm": "application/wasm",
+	".woff2": "font/woff2",
 };
 
 /**

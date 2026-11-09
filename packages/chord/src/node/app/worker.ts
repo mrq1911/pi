@@ -15,7 +15,7 @@ import { openStore, sqliteBackend } from "../../store/index.ts";
 import { translationsFacet } from "../../surfaces/index.ts";
 import { sendWorkerTelemetry, TelemetryRecorder } from "../../telemetry-ingest/index.ts";
 import type { Watchable } from "../../watch.ts";
-import { workerMain } from "../workers/index.ts";
+import { workerMain } from "../workers/child.ts";
 import type { AppApi, AppKind, KitStart } from "./app.ts";
 import { hostDataFacet } from "./data.ts";
 import { filesFacet } from "./files.ts";
@@ -65,6 +65,7 @@ export function startWorker<P extends Principal>(options: WorkerOptions<P>): voi
 				store,
 				telemetry: recorder,
 				...(principalAttributes === undefined ? {} : { principalAttributes }),
+				...kit.timeouts,
 				onError: options.onError,
 			});
 			onClose((ctx) => host.close(ctx));
