@@ -1,7 +1,8 @@
 /**
  * /loop: run a prompt again and again.
  *
- *   /loop 5m check the build    every five minutes; a run that comes due while another turn runs waits for it
+ *   /loop 5m check the build    every five minutes (units s, m, h and d, as in 1d or 2h30m); a run that comes due
+ *                               while another turn runs waits for it
  *   /loop keep the tests green  again as each run ends; the model picks the wait before the next, or ends the loop,
  *                               with the loop_next tool, which is only active while a loop runs; each run tells it
  *                               so, and a run that does not call it ends the loop rather than going again at once
@@ -23,6 +24,13 @@ export interface LoopNoteDetails {
 }
 /** Shortest wait between self-paced runs, so a loop that does nothing cannot spin. */
 const MIN_DELAY_MS = 1000;
+/** Longest wait the model can ask for between self-paced runs. */
+const MAX_DELAY_SECONDS = 30 * 86_400;
+/**
+ * Waits go in steps of at most this long, measured against the wall clock: setTimeout cannot wait 25 days or more
+ * (longer goes off at once), and its clock stops while the machine sleeps, which would push a daily run later each day.
+ */
+const STEP_MS = 60_000;
 /** A run whose prompt starts no turn (a command that only does something) ends after this long. */
 const START_GRACE_MS = 500;
 
@@ -51,35 +59,48 @@ interface Loop {
 	ticker: ReturnType<typeof setInterval>;
 }
 
-/** "30s", "5m", "2h" or "1h30m"; a unit is needed, so a prompt that starts with a number stays a prompt. */
+/** "30s", "5m", "2h", "1h30m" or "1d"; a unit is needed, so a prompt that starts with a number stays a prompt. */
 export function parseInterval(text: string): number | undefined {
-	const match = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/.exec(text);
+	const match = /^(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/.exec(text);
 	if (!match || !/\d/.test(text)) return undefined;
-	const [, hours, minutes, seconds] = match;
-	const ms = ((Number(hours ?? 0) * 60 + Number(minutes ?? 0)) * 60 + Number(seconds ?? 0)) * 1000;
+	const [, days, hours, minutes, seconds] = match;
+	const ms =
+		(((Number(days ?? 0) * 24 + Number(hours ?? 0)) * 60 + Number(minutes ?? 0)) * 60 + Number(seconds ?? 0)) * 1000;
 	return ms > 0 ? ms : undefined;
 }
 
+const UNITS = [
+	["d", 86_400],
+	["h", 3600],
+	["m", 60],
+	["s", 1],
+] as const;
+
+/** The largest unit and the next one down, as /loop takes them: "30s", "5m30s", "1h30m", "1d12h". */
 export function formatInterval(ms: number): string {
 	const seconds = Math.round(ms / 1000);
-	if (seconds < 60) return `${seconds}s`;
-	const minutes = Math.floor(seconds / 60);
-	if (minutes < 60) return seconds % 60 ? `${minutes}m${seconds % 60}s` : `${minutes}m`;
-	return minutes % 60 ? `${Math.floor(minutes / 60)}h${minutes % 60}m` : `${Math.floor(minutes / 60)}h`;
+	const index = UNITS.findIndex(([, size]) => seconds >= size);
+	if (index < 0) return "0s";
+	const [unit, size] = UNITS[index];
+	const next = UNITS[index + 1];
+	const rest = next ? Math.floor((seconds % size) / next[1]) : 0;
+	return `${Math.floor(seconds / size)}${unit}${rest && next ? `${rest}${next[0]}` : ""}`;
 }
 
 /**
- * How long a loop has gone on, as pi-vt420 says times: "45s", "3m 07s", "12m", "1h 05m". Its own, since an extension
- * loaded through the link in ~/.pi/agent/extensions resolves imports from there.
+ * How long a loop has gone on, as pi-vt420 says times: "45s", "3m 07s", "12m", "1h 05m", "2d 03h". Its own, since an
+ * extension loaded through the link in ~/.pi/agent/extensions resolves imports from there.
  */
-function formatElapsed(ms: number): string {
+export function formatElapsed(ms: number): string {
 	const seconds = Math.max(0, Math.floor(ms / 1000));
 	if (seconds < 60) return `${seconds}s`;
 	const minutes = Math.floor(seconds / 60);
 	if (minutes < 10) return seconds % 60 ? `${minutes}m ${String(seconds % 60).padStart(2, "0")}s` : `${minutes}m`;
 	if (minutes < 60) return `${minutes}m`;
 	const hours = Math.floor(minutes / 60);
-	return minutes % 60 ? `${hours}h ${String(minutes % 60).padStart(2, "0")}m` : `${hours}h`;
+	if (hours < 24) return minutes % 60 ? `${hours}h ${String(minutes % 60).padStart(2, "0")}m` : `${hours}h`;
+	const days = Math.floor(hours / 24);
+	return hours % 24 ? `${days}d ${String(hours % 24).padStart(2, "0")}h` : `${days}d`;
 }
 
 export default function loopExtension(pi: ExtensionAPI) {
@@ -97,6 +118,14 @@ export default function loopExtension(pi: ExtensionAPI) {
 			return;
 		}
 		context?.ui.setStatus("loop", `∞ ${formatElapsed(Date.now() - loop.since)}`);
+	};
+
+	/** Calls `then` once the wall clock reaches `dueAt`, unless the loop stops first. */
+	const at = (current: Loop, dueAt: number, then: () => void): void => {
+		current.timer = setTimeout(
+			() => (Date.now() >= dueAt ? then() : at(current, dueAt, then)),
+			Math.max(0, Math.min(dueAt - Date.now(), STEP_MS)),
+		);
 	};
 
 	const stop = (message?: string): void => {
@@ -148,16 +177,18 @@ export default function loopExtension(pi: ExtensionAPI) {
 			}
 			const delay = Math.max(MIN_DELAY_MS, current.nextDelayMs);
 			current.nextDelayMs = 0;
-			current.timer = setTimeout(run, delay);
+			at(current, Date.now() + delay, run);
 		} else if (current.due) setTimeout(run, 0);
 	};
 
-	const every = (ms: number): void => {
-		if (!loop) return;
-		loop.timer = setTimeout(() => {
+	/** Runs at `dueAt` and every `ms` after; runs missed while the machine slept make one run, on the same beat. */
+	const every = (current: Loop, dueAt: number, ms: number): void => {
+		at(current, dueAt, () => {
 			run();
-			every(ms);
-		}, ms);
+			let next = dueAt + ms;
+			while (next <= Date.now()) next += ms;
+			every(current, next, ms);
+		});
 	};
 
 	pi.registerTool({
@@ -171,7 +202,11 @@ export default function loopExtension(pi: ExtensionAPI) {
 		],
 		parameters: Type.Object({
 			delaySeconds: Type.Optional(
-				Type.Number({ minimum: 0, maximum: 86_400, description: "Seconds to wait before the next run" }),
+				Type.Number({
+					minimum: 0,
+					maximum: MAX_DELAY_SECONDS,
+					description: "Seconds to wait before the next run, up to 30 days",
+				}),
 			),
 			stop: Type.Optional(Type.Boolean({ description: "End the loop after this run" })),
 			reason: Type.Optional(Type.String({ description: "Why, for the user" })),
@@ -245,7 +280,7 @@ export default function loopExtension(pi: ExtensionAPI) {
 			loop = started;
 			toolActive(true);
 			run();
-			if (intervalMs) every(intervalMs);
+			if (intervalMs) every(started, started.since + intervalMs, intervalMs);
 			status();
 		},
 	});

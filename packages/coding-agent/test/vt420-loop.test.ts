@@ -1,6 +1,10 @@
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { afterEach, describe, expect, it } from "vitest";
-import loopExtension, { formatInterval, parseInterval } from "../src/experimental/vt420/extensions/loop.ts";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import loopExtension, {
+	formatElapsed,
+	formatInterval,
+	parseInterval,
+} from "../src/experimental/vt420/extensions/loop.ts";
 import renameExtension from "../src/experimental/vt420/extensions/rename.ts";
 import { createHarness, getUserTexts, type Harness } from "./suite/harness.ts";
 
@@ -26,6 +30,67 @@ describe("/loop", () => {
 			"5m",
 			"1h30m",
 		]);
+	});
+
+	it("takes days too, and says them", () => {
+		expect([parseInterval("1d"), parseInterval("2d12h"), parseInterval("1d30m")]).toEqual([
+			86_400_000, 216_000_000, 88_200_000,
+		]);
+		expect([formatInterval(86_400_000), formatInterval(216_000_000), formatInterval(88_200_000)]).toEqual([
+			"1d",
+			"2d12h",
+			"1d",
+		]);
+		expect([formatElapsed(5_400_000), formatElapsed(86_400_000), formatElapsed(183_600_000)]).toEqual([
+			"1h 30m",
+			"1d",
+			"2d 03h",
+		]);
+	});
+
+	it("waits out intervals of days, beyond the 25 days setTimeout can wait", async () => {
+		const harness = await createHarness({ extensionFactories: [{ factory: loopExtension }] });
+		harnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage("pong"), fauxAssistantMessage("pong")]);
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+		try {
+			const started = harness.session.prompt("/loop 30d ping");
+			await vi.advanceTimersByTimeAsync(1000);
+			await started;
+			expect(getUserTexts(harness)).toEqual(["ping"]);
+			await vi.advanceTimersByTimeAsync(30 * 86_400_000 - 120_000);
+			expect(getUserTexts(harness)).toEqual(["ping"]);
+			await vi.advanceTimersByTimeAsync(180_000);
+			expect(getUserTexts(harness)).toEqual(["ping", "ping"]);
+			await harness.session.prompt("/loop stop");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("makes one run for the days a sleeping machine missed, and keeps its time of day", async () => {
+		const harness = await createHarness({ extensionFactories: [{ factory: loopExtension }] });
+		harnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage("pong"), fauxAssistantMessage("pong"), fauxAssistantMessage("pong")]);
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+		try {
+			const began = Date.now();
+			const started = harness.session.prompt("/loop 1d ping");
+			await vi.advanceTimersByTimeAsync(1000);
+			await started;
+			// asleep for three days and a bit: the wall clock moves on, timers do not
+			vi.setSystemTime(began + 3 * 86_400_000 + 3_600_000);
+			await vi.advanceTimersByTimeAsync(61_000);
+			expect(getUserTexts(harness)).toEqual(["ping", "ping"]);
+			// the next one on the old beat, four days after the start
+			await vi.advanceTimersByTimeAsync(began + 4 * 86_400_000 - Date.now() - 120_000);
+			expect(getUserTexts(harness)).toEqual(["ping", "ping"]);
+			await vi.advanceTimersByTimeAsync(180_000);
+			expect(getUserTexts(harness)).toEqual(["ping", "ping", "ping"]);
+			await harness.session.prompt("/loop stop");
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("runs again as each run ends until the model ends it, with its tool only active meanwhile", async () => {

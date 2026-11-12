@@ -203,8 +203,10 @@ components) does nothing, as in RPC mode. `/llama` manages a llama.cpp router th
 prompts with its progress on the separator row.
 
 `/loop` runs a prompt again and again: `/loop 5m check the build` every five minutes (a run that
-comes due while another turn runs waits for it), `/loop keep the tests green` again as each run ends, the model
-choosing the wait before the next or ending the loop with a `loop_next` tool that is only active meanwhile. `/loop`
+comes due while another turn runs waits for it; intervals in `s`, `m`, `h` and `d`, as `/loop 1d` or `/loop 2h30m`,
+kept to the wall clock, so a machine that slept through runs makes one on waking and keeps the time of day),
+`/loop keep the tests green` again as each run ends, the model choosing the wait before the next, up to 30 days, or
+ending the loop with a `loop_next` tool that is only active meanwhile. `/loop`
 shows what loops, `/loop stop` ends it, and so does interrupting a run. While it loops, the right of the separator row
 says for how long, `∞ 12m`. Its runs show in the transcript, and come back with Up, as the `/loop` that sent them, in
 a resumed session too. It is an extension (`extensions/loop.ts`) that `install.sh` links into `~/.pi/agent/extensions`, so the npm pi loads it too, as it
