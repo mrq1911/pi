@@ -67,6 +67,7 @@ import { getChangelogPath, normalizeChangelogLinks, parseChangelog } from "../..
 import { copyToClipboard } from "../../utils/clipboard.ts";
 import { LineEditor } from "./editor.ts";
 import { createExtensionUI } from "./extension-ui.ts";
+import { GOAL_NOTE, type GoalNoteDetails } from "./extensions/goal.ts";
 import { LOOP_NOTE, type LoopNoteDetails } from "./extensions/loop.ts";
 import { formatAge, formatDuration } from "./format.ts";
 import type { Keymap, Vt420Action } from "./keys.ts";
@@ -337,6 +338,13 @@ type SessionMessage = AgentSession["messages"][number];
 function loopNoteCommand(message: SessionMessage): string | undefined {
 	if (message.role !== "custom" || message.customType !== LOOP_NOTE) return undefined;
 	const command = (message.details as Partial<LoopNoteDetails> | undefined)?.command;
+	return typeof command === "string" ? command : undefined;
+}
+
+/** The /goal a message is the kickoff of, from the note's details; the kickoff shows as the /goal as typed. */
+function goalCommand(message: SessionMessage): string | undefined {
+	if (message.role !== "custom" || message.customType !== GOAL_NOTE) return undefined;
+	const command = (message.details as Partial<GoalNoteDetails> | undefined)?.command;
 	return typeof command === "string" ? command : undefined;
 }
 
@@ -623,12 +631,14 @@ export class Vt420App {
 		this.unsubscribe = session.subscribe((event) => this.onSessionEvent(event));
 		this.working = session.isStreaming;
 		this.rebuildTranscript();
-		// Up brings back what was sent in this session, as pi does, a loop's runs as the /loop that sent them
+		// Up brings back what was sent in this session, as pi does, a loop's runs as the /loop that sent them, and goals
 		const commands = loopCommands(session.messages);
 		this.editor.resetHistory(
-			session.messages.flatMap((message) =>
-				message.role === "user" ? [commands.get(message) ?? messageText(message.content)] : [],
-			),
+			session.messages.flatMap((message) => {
+				if (message.role === "user") return [commands.get(message) ?? messageText(message.content)];
+				const goal = goalCommand(message);
+				return goal === undefined ? [] : [goal];
+			}),
 		);
 		this.refreshFooter();
 		this.requestRender();
@@ -717,9 +727,12 @@ export class Vt420App {
 				case "branchSummary":
 					this.transcript.add({ kind: "summary", title: "Summary of an abandoned branch", text: message.summary });
 					break;
-				case "custom":
-					if (message.display) this.notice("info", messageText(message.content));
+				case "custom": {
+					const goal = goalCommand(message);
+					if (goal !== undefined) this.transcript.add({ kind: "user", text: goal });
+					else if (message.display) this.notice("info", messageText(message.content));
 					break;
+				}
 			}
 		}
 		// Calls without results in history never finished.
@@ -779,6 +792,10 @@ export class Vt420App {
 						block.content.text = loopNoteCommand(event.message)!;
 						block.touch();
 					}
+				} else if (goalCommand(event.message) !== undefined) {
+					// a /goal's kickoff, which the model reads as the user's, shows as the /goal as typed
+					this.lastUser = this.transcript.add({ kind: "user", text: goalCommand(event.message)! });
+					this.follow = true;
 				} else if (event.message.role === "assistant") {
 					this.streaming = this.transcript.add({
 						kind: "assistant",

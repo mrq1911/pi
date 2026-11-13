@@ -18,6 +18,7 @@ import type { Vt420Setup } from "@mrq/vt420-emu/vt420.js";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import { Vt420App, type Vt420AppOptions, type Vt420Io, type Vt420Runtime } from "../src/experimental/vt420/app.ts";
+import goalExtension from "../src/experimental/vt420/extensions/goal.ts";
 import loopExtension from "../src/experimental/vt420/extensions/loop.ts";
 import { Keymap } from "../src/experimental/vt420/keys.ts";
 import { formatTokens } from "../src/experimental/vt420/widgets.ts";
@@ -483,6 +484,35 @@ describe("vt420 app", () => {
 		expect(again.screen()).toContain("π /loop 1h check the build");
 		await again.key("up");
 		expect(editor(again)).toBe("π /loop 1h check the build");
+		await again.key("ctrl+c");
+		await again.key("ctrl+d");
+		await again.done;
+	});
+
+	it("shows a /goal as typed, the reviewer's word as a notice, and recalls the /goal, after a resume too", async () => {
+		const harness = await createHarness({ extensionFactories: [{ factory: goalExtension }] });
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage("the build is green now"),
+			fauxAssistantMessage('{"verdict":"done","reason":"the build output shows green"}'),
+		]);
+		const app = await start(harness);
+		const editor = (running: Running): string | undefined =>
+			running.emulator.screen().find((row) => row.startsWith("π"));
+		await app.submit("/goal make the build green");
+		await waitForIdle(harness);
+		expect(app.screen()).toContain("π /goal make the build green");
+		expect(app.screen()).toContain("Goal met: the build output shows green");
+		expect(app.screen()).not.toContain("verdict");
+		await app.key("up");
+		expect(editor(app)).toBe("π /goal make the build green");
+		await app.key("ctrl+c");
+		await app.key("ctrl+d");
+		await app.done;
+		const again = await start(harness);
+		expect(again.screen()).toContain("π /goal make the build green");
+		await again.key("up");
+		expect(editor(again)).toBe("π /goal make the build green");
 		await again.key("ctrl+c");
 		await again.key("ctrl+d");
 		await again.done;

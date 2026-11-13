@@ -209,8 +209,23 @@ kept to the wall clock, so a machine that slept through runs makes one on waking
 ending the loop with a `loop_next` tool that is only active meanwhile. `/loop`
 shows what loops, `/loop stop` ends it, and so does interrupting a run. While it loops, the right of the separator row
 says for how long, `∞ 12m`. Its runs show in the transcript, and come back with Up, as the `/loop` that sent them, in
-a resumed session too. It is an extension (`extensions/loop.ts`) that `install.sh` links into `~/.pi/agent/extensions`, so the npm pi loads it too, as it
-does `/rename`, another name for `/name`, for fingers trained on other agents.
+a resumed session too.
+
+`/goal make the tests pass and keep the build green` keeps the model at one task until it is done, after opencode's
+`/goal`: each time the model would stop, a reviewer, the same model asked once more over the same conversation, checks
+it against the objective and believes only what the conversation shows (command output, test results, files), not the
+model saying it is done. If it is met the goal ends (`Goal met: …`); if not, the model goes on with what the reviewer
+found missing and the next step, a notice saying so; if the model needs the user, or the user asks it to stop, the
+goal pauses. It also pauses after 50 rounds, after three rounds that called no tools or drew the same complaint,
+and when a run is interrupted. `/goal` shows it, `/goal pause`, `/goal resume` (50 more rounds) and `/goal clear`
+do what they say, and the right of the separator row shows the round, `⇒ 3/50`. Nothing goes into the system prompt or
+the tools: the goal talks to the model in hidden notes, the kickoff and one per round, and the reviewer's request is
+the model's last one with the question after it, so a prompt cache serves all but the question. The goal is kept in
+the session, per branch, and shows as the `/goal` typed, in a resumed session too.
+
+`/loop` and `/goal` are extensions (`extensions/loop.ts`, `extensions/goal.ts`) that `install.sh` links into
+`~/.pi/agent/extensions`, so the npm pi loads them too, as it does `/rename`, another name for `/name`, for fingers
+trained on other agents.
 Left alone, local models say what they are doing only in their thinking, which rolls by and folds away, so pi-vt420
 (not the npm pi) keeps them talking: a rule in the system prompt asks for a short sentence when the model starts
 something new, finds something or changes plan, and since small models forget a rule that far back, a note at the end

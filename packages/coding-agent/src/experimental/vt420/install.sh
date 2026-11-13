@@ -55,10 +55,10 @@ if [[ -n "$classic" ]]; then ln -sfn "$classic" "$BIN/pi-classic"; fi
 ln -sfn "$ROOT/pi-vt420.sh" "$BIN/pi"
 ln -sfn "$ROOT/pi-vt420.sh" "$BIN/pi-vt420"
 ln -sfn "$ROOT/packages/coding-agent/src/experimental/vt420/install.sh" "$BIN/pi-vt420-update"
-# /loop and /rename, for pi and pi-vt420 alike
+# /loop, /goal and /rename, for pi and pi-vt420 alike
 extensions="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/extensions"
 mkdir -p "$extensions"
-for extension in loop rename; do
+for extension in loop goal rename; do
 	ln -sfn "$ROOT/packages/coding-agent/src/experimental/vt420/extensions/$extension.ts" "$extensions/$extension.ts"
 done
 echo "pi starts pi-vt420 from $ROOT at $(git log -1 --format='%h %s')"
