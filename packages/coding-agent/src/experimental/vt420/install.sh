@@ -24,7 +24,11 @@ if [[ "${1:-}" != "--no-pull" ]]; then
 	before="$(git rev-parse HEAD)"
 	git pull --ff-only --quiet
 	after="$(git rev-parse HEAD)"
-	if [[ "$before" != "$after" ]]; then git --no-pager log --oneline -20 "$before..$after"; fi
+	if [[ "$before" != "$after" ]]; then
+		git --no-pager log --oneline -20 "$before..$after"
+		# the pull may have changed this script, which bash goes on reading from the old one
+		exec "$ROOT/packages/coding-agent/src/experimental/vt420/install.sh" --no-pull
+	fi
 fi
 
 # third-party dependencies, only when the lockfile changed since the last install
