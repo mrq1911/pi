@@ -19,7 +19,7 @@ import {
 	withTelemetry,
 } from "../context/index.ts";
 import type { Address, Contract, HostKind, ParamsOf } from "../contracts/index.ts";
-import { contractData, type Params } from "../contracts/internal.ts";
+import { contractData, joinKey, type Params } from "../contracts/internal.ts";
 import { ChordError, type FailureCause, type Principal, type PrincipalKeyFunction } from "../data/index.ts";
 import {
 	asChordError,
@@ -28,12 +28,13 @@ import {
 	checkParams,
 	identityKey,
 	invalid,
+	principalJson,
 	principalKey,
 } from "../data/internal.ts";
 import type { TransactionCancelled } from "../documents/internal.ts";
 import type { JsonValue } from "../json.ts";
 import { binaryCodec, type Codec, type Compression, type Link, type PartLimits } from "../link/index.ts";
-import { linkLimits } from "../link/internal.ts";
+import { linkLimits, type WireAddress } from "../link/internal.ts";
 import type { Registry, RegistryValue } from "../registries/index.ts";
 import type { RegistryValueSource } from "../registries/internal.ts";
 import { type RegistryContribution, type RegistryError, RegistryRecord } from "../registries/internal.ts";
@@ -208,10 +209,11 @@ export type HostError =
 	 */
 	| { readonly kind: "derive_failed"; readonly object: string; readonly member?: string; readonly error: unknown }
 	/**
-	 * A live query's run in a commit threw (a row its code cannot read), once per failure episode (a good run ends it):
-	 * the query is a failed member until then (`self.query`).
+	 * A live read's run failed after its object went live (a row its code cannot read, a set nobody serves), once per
+	 * failure episode (a good run ends it): the member is failed until then. `query` is the table's name for
+	 * `self.query`, the named query's label for `self.liveQuery`, `self.count` and `self.list`.
 	 */
-	| { readonly kind: "query_failed"; readonly object: string; readonly table: string; readonly error: unknown }
+	| { readonly kind: "query_failed"; readonly object: string; readonly query: string; readonly error: unknown }
 	/** A routine's call threw, or its source failed for good; `routine` is its kind and position. */
 	| { readonly kind: "routine_failed"; readonly object: string; readonly routine: Position; readonly error: unknown }
 	/** A job's `run` threw (not after an abort): its outcome is `failed { threw }`. */
@@ -352,8 +354,10 @@ export interface Host<P extends Principal = Principal, R extends JsonValue = Jso
 	 * How this host reaches hosts of `Kind` (called before `load`, once per kind): `authorize` admits every hold routed
 	 * over it, `resolve` makes the link of an address, for a new hold, on `retry`, or once after a link that completed
 	 * its handshake dropped while held (no timer). A rejected `resolve`, or a link closed before its handshake, fails the
-	 * address's holders `failed { waiting }` (they stay on its path). `context` is the parent of the route's work (its
-	 * `resolve`s, the holds and calls on its links), aborted for it when this host closes. Returns the address controls.
+	 * address's holders `failed { waiting }` (they stay on its path). With `admit` (slice 14 §2.3) nothing is resolved
+	 * or forwarded for a principal before the route's decision allows it. `context` is the parent of the route's work
+	 * (its `resolve`s, the holds and calls on its links, its admission's references), aborted for it when this host
+	 * closes. Returns the address controls.
 	 */
 	route<N extends string, Q extends Params>(
 		Kind: HostKind<N, Q>,
@@ -412,14 +416,23 @@ export interface Host<P extends Principal = Principal, R extends JsonValue = Jso
 		context: Context,
 		options?: HostImportOptions,
 	): Promise<HostDataCounts>;
-	/** Deletes the records and rows belonging to `address` in one commit, coordinated as `importHostData`. */
-	deleteHostData(address: Address, context: Context): Promise<HostDataCounts>;
+	/**
+	 * Deletes the records and rows belonging to `address` in one commit, coordinated as `importHostData`. With
+	 * `options.plugin` (slice 14 §6), only what that plugin's objects own: the documents and tables of the types it
+	 * serves here now (a session moving to another app drops the old app's data of it). Data under a type the plugin
+	 * served before and serves no more (a renamed type) is not its any more and stays; a plugin not loaded here is
+	 * `invalid/args`.
+	 */
+	deleteHostData(address: Address, context: Context, options?: HostDeleteOptions): Promise<HostDataCounts>;
 	/**
 	 * Closes its links, seals its root scopes, then ends every object at once, then drains and closes them one by one,
 	 * the last to go live first (reason `close`). Rejects with an `AggregateError` of the closes that threw.
 	 */
 	close(context: Context): Promise<void>;
 }
+
+/** What `host.deleteHostData` takes besides the address: the one plugin whose data of it is deleted. */
+export type HostDeleteOptions = { readonly plugin?: string };
 
 /** A plugin left out at `load`, or whose new code failed at a reload (it kept its old code, if it had any), and why. */
 export type PluginFailure = { readonly plugin: string; readonly error: unknown };
@@ -613,6 +626,11 @@ export class ChordHost<P extends Principal = Principal, R extends JsonValue = Js
 	 * resolves for them) until `ref.retry()` places them anew; ended at `close` like the others.
 	 */
 	readonly unplaced = new Path(() => {});
+	/**
+	 * The remote objects references of this host share, per path, by sharing key (decision "References share one wire
+	 * hold"); each entry owned by its object, which takes it out (`#share`). A dropped route path takes its table.
+	 */
+	readonly #shared = new WeakMap<Path, Map<string, RemoteObject>>();
 	readonly #routes = new Map<string, Route>();
 	readonly #destination: Destination;
 	/** The downstream origins this host relays holds for, by their number on upstream links (never reused). */
@@ -1225,8 +1243,15 @@ export class ChordHost<P extends Principal = Principal, R extends JsonValue = Js
 		return importInto(this.#dataSite("importHostData"), parts, context, options);
 	}
 
-	async deleteHostData(address: Address, context: Context): Promise<HostDataCounts> {
-		return deleteFrom(this.#dataSite("deleteHostData"), address, context);
+	async deleteHostData(address: Address, context: Context, options: HostDeleteOptions = {}): Promise<HostDataCounts> {
+		const site = this.#dataSite("deleteHostData");
+		const { plugin } = options;
+		if (plugin === undefined) return deleteFrom(site, address, context);
+		if (!this.#plugins.has(plugin)) throw invalid("args", `deleteHostData: plugin "${plugin}" is not loaded here`);
+		// A plugin's data is what the types it serves own: their names are the owners in the store.
+		const owners = new Set<string>();
+		for (const [name, served] of this.#types) if (served.plugin === plugin) owners.add(name);
+		return deleteFrom(site, address, context, owners);
 	}
 
 	/** What a host data operation needs of this host; `invalid/args` without a store. */
@@ -1440,22 +1465,7 @@ export class ChordHost<P extends Principal = Principal, R extends JsonValue = Js
 	bind(binding: Binding, Type: Contract, params: CheckedParams, context: Context): Target | undefined {
 		const { principal } = binding.caller;
 		const placed = this.#destination.reference(Type, params.params, principal, context);
-		if (placed.kind === "path") {
-			const { caller, dependent } = binding;
-			const remote = new RemoteObject(
-				this,
-				Type,
-				params,
-				placed.address,
-				caller,
-				placed.path,
-				dependent,
-				context.telemetry,
-			);
-			placed.path.attach(remote);
-			binding.bind(remote);
-			return remote;
-		}
+		if (placed.kind === "path") return this.#bindRemote(binding, Type, params, placed.path, placed.address, context);
 		const served = this.#types.get(Type.name);
 		const unbound =
 			unboundCause(served, Type.kind, Type.name, Type.version, Type.fingerprint) ??
@@ -1487,6 +1497,81 @@ export class ChordHost<P extends Principal = Principal, R extends JsonValue = Js
 		const activation = object.activationSpan;
 		if (activation !== undefined && !untraced(context.telemetry)) context.telemetry.addLink({ context: activation });
 		return object;
+	}
+
+	/**
+	 * Binds `binding` to a remote object over `path` (decision "References share one wire hold"): the one this host
+	 * holds for its sharing key, joined with no message (on a path whose route failed to resolve here, a join is a new
+	 * request: `path.requested`), or a new one, stored and bound before it attaches (a resolver re-entering `bind` finds
+	 * it, and a reference it makes and releases there is not its last). A `self.get` reference (its hold carries its
+	 * dependent's chain, Q5), one on a suspended path, and one whose key's object a provider or relay left failed
+	 * `waiting` (a new hold is a new request there: a relay's failed route resolves again for it) hold on their own, as
+	 * before.
+	 */
+	#bindRemote(
+		binding: Binding,
+		Type: Contract,
+		params: CheckedParams,
+		path: Path,
+		address: WireAddress,
+		context: Context,
+	): RemoteObject {
+		const { caller, dependent } = binding;
+		const shared = dependent === undefined && !path.suspended;
+		const key = shared ? this.#sharingKey(Type, params, address, caller, context) : undefined;
+		const found = key === undefined ? undefined : this.#shared.get(path)?.get(key);
+		const waiting = found?.state.kind === "failed" && found.state.cause.kind === "waiting";
+		if (found !== undefined && !(waiting && path.link !== undefined)) {
+			binding.bind(found);
+			if (waiting) path.requested(found);
+			// A joining getter links to the hold while it is open (decision "Shared work").
+			const span = found.span;
+			if (span !== undefined && !untraced(context.telemetry)) context.telemetry.addLink({ context: span });
+			return found;
+		}
+		// Owned entries: only the object an entry maps to takes it out, so an ended object never removes a newer one.
+		const table = key !== undefined && found === undefined ? this.#tableOf(path) : undefined;
+		const unindex =
+			table === undefined || key === undefined
+				? undefined
+				: () => {
+						if (table.get(key) === remote) table.delete(key);
+					};
+		const remote = new RemoteObject(this, Type, params, address, caller, path, dependent, context.telemetry, unindex);
+		if (table !== undefined && key !== undefined) table.set(key, remote);
+		binding.bind(remote);
+		path.attach(remote);
+		return remote;
+	}
+
+	/** The sharing table of `path`, made by its first shared object. */
+	#tableOf(path: Path): Map<string, RemoteObject> {
+		let table = this.#shared.get(path);
+		if (table === undefined) {
+			table = new Map();
+			this.#shared.set(path, table);
+		}
+		return table;
+	}
+
+	/**
+	 * The key under which references of this host share a remote object: its type, version and fingerprint, its params'
+	 * identity key, the address its placement computed (`hostAddress` is not in the fingerprint), and its caller (its
+	 * principal's JSON as the wire carries it, and the incarnation it acts with); every part escaped (`joinKey`).
+	 */
+	#sharingKey(Type: Contract, params: CheckedParams, address: WireAddress, caller: Caller, context: Context): string {
+		const { principal, incarnation } = caller;
+		// A `hostAddress` returns JSON params (checked where the address is routed or served).
+		const placed = joinKey([address.kind, canonicalJson(address.params as JsonValue, context)]);
+		return joinKey([
+			Type.name,
+			String(Type.version),
+			Type.fingerprint,
+			params.key,
+			placed,
+			principal === undefined ? "-" : `+${principalJson(principal, context)}`,
+			incarnation,
+		]);
 	}
 
 	/** Where a hold arriving on `link` goes (`Destination.hold`: by the address it names); `released` once the host closed. */
@@ -1539,6 +1624,12 @@ export class ChordHost<P extends Principal = Principal, R extends JsonValue = Js
 		const labels = new Map([...this.#objects.values()].map((each) => [each.activationId, each.label]));
 		const cycle = chain.slice(chain.indexOf(id)).map((entry) => labels.get(entry) ?? "…");
 		return invalid("cycle", `dependency cycle: ${[...cycle, ...closing].join(" → ")}`);
+	}
+
+	/** The principal key of `principal` (`HostOptions.principalKey`): a route's admission keeps one decision per key. */
+	principalKeyOf(principal: Principal, context: Context): string {
+		// Principals on this host are `P`s: its own, and the ones its links stamp.
+		return principalKey(principal as P, context, this.#principalKey);
 	}
 
 	/** A new origin number for `side`, which relays holds upstream; registered in `relays` until it closes. */
@@ -1786,10 +1877,12 @@ export class ChordHost<P extends Principal = Principal, R extends JsonValue = Js
 		this.#publication.resolve();
 		this.backoff.clear();
 		// Every object is sealed before any teardown releases a reference, so none ends in the background.
-		const teardowns = [...this.#objects.values()].reverse().map((object) => object.stop());
+		const objects = [...this.#objects.values()].reverse();
+		const teardowns = objects.map((object) => object.stop());
 		await Promise.all(this.#endings.values());
 		const failures: CloseFailed[] = [];
 		for (const tearDown of teardowns) failures.push(...(await tearDown()));
+		for (const object of objects) object.unbindSets();
 		this.#types.clear();
 		// Their facets keep their factories' closures (which may keep objects' handles).
 		this.#plugins.clear();

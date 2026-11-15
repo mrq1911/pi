@@ -44,6 +44,7 @@ import {
 	type PluginFailure,
 	type RefState,
 	type RouteHandle,
+	type RouteOptions,
 	type Self,
 	type StoreSelf,
 } from "../src/host/index.ts";
@@ -68,7 +69,6 @@ import type { ArchivePart } from "../src/store/archive.ts";
 import { sqliteBackend } from "../src/store/backend.ts";
 import { changeDocument, createDocument, retireDocument } from "../src/store/engine.ts";
 import { json } from "../src/store/json-column.ts";
-import { LiveQueries } from "../src/store/live-query.ts";
 import type { StagedWrite } from "../src/store/step.ts";
 import { type ChordStore, openStore, type Store } from "../src/store/store.ts";
 import { defineTable, type TableDefinition } from "../src/store/table.ts";
@@ -339,7 +339,6 @@ export function tableOwner(failures: ChordError[] = []): TableOwner & { readonly
 	return {
 		label: "app.store",
 		scope: {},
-		queries: new LiveQueries(),
 		assertLive: () => {},
 		fail: (error) => void failures.push(error),
 		failures,
@@ -969,6 +968,8 @@ export async function relayed(
 	options: {
 		readonly tab?: TestPrincipal;
 		readonly authorize?: (principal: TestPrincipal, address: { readonly key: string }) => boolean;
+		/** The route's admission (slice 14 §2.3). */
+		readonly admit?: RouteOptions<TestPrincipal, typeof Session>["admit"];
 		readonly trusted?: boolean;
 		readonly codecs?: { readonly tab?: Codec; readonly route?: Codec };
 		readonly server?: (host: FacetHost<TestPrincipal>) => void;
@@ -1045,6 +1046,7 @@ export async function relayed(
 		{
 			authorize: options.authorize ?? (() => true),
 			resolve: (address, routing) => resolve(address, () => worker(address), routing),
+			...(options.admit === undefined ? {} : { admit: options.admit }),
 		},
 		context,
 	);
