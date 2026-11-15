@@ -59,10 +59,15 @@ if [[ -n "$classic" ]]; then ln -sfn "$classic" "$BIN/pi-classic"; fi
 ln -sfn "$ROOT/pi-vt420.sh" "$BIN/pi"
 ln -sfn "$ROOT/pi-vt420.sh" "$BIN/pi-vt420"
 ln -sfn "$ROOT/packages/coding-agent/src/experimental/vt420/install.sh" "$BIN/pi-vt420-update"
-# /loop, /goal and /rename, for pi and pi-vt420 alike
+# /loop and /rename, for pi and pi-vt420 alike
 extensions="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/extensions"
 mkdir -p "$extensions"
-for extension in loop goal rename; do
+for extension in loop rename; do
 	ln -sfn "$ROOT/packages/coding-agent/src/experimental/vt420/extensions/$extension.ts" "$extensions/$extension.ts"
 done
+# /goal is the @mrq/pi-goal package now: built into pi-vt420, installed once for the npm pi, in place of the old link
+if [[ -L "$extensions/goal.ts" ]]; then rm "$extensions/goal.ts"; fi
+if [[ -n "$classic" ]] && ! grep -qs '"npm:@mrq/pi-goal' "$(dirname "$extensions")/settings.json"; then
+	"$BIN/pi-classic" install npm:@mrq/pi-goal || echo "pi-vt420: could not install @mrq/pi-goal for pi-classic" >&2
+fi
 echo "pi starts pi-vt420 from $ROOT at $(git log -1 --format='%h %s')"

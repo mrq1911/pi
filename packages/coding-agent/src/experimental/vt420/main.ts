@@ -3,6 +3,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import goalExtension from "@mrq/pi-goal";
 import type { SupplementalSet } from "@mrq/vt420/charset.js";
 import { Vt420Terminal } from "@mrq/vt420/terminal.js";
 import { isValidThinkingLevel } from "../../cli/args.ts";
@@ -307,7 +308,12 @@ async function main(): Promise<void> {
 			resourceLoaderOptions: {
 				noExtensions: args.noExtensions,
 				noThemes: true,
-				extensionFactories: [...builtInExtensions, { name: "progress", factory: progressExtension, builtin: true }],
+				extensionFactories: [
+					...builtInExtensions,
+					{ name: "progress", factory: progressExtension, builtin: true },
+					// /goal, which an installed copy of the package replaces rather than clashes with
+					{ name: "goal", factory: goalExtension, builtin: true, replaceable: true },
+				],
 			},
 		});
 		const diagnostics: AgentSessionRuntimeDiagnostic[] = [...services.diagnostics];

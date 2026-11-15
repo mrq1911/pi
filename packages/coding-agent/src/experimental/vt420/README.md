@@ -221,11 +221,12 @@ and when a run is interrupted. `/goal` shows it, `/goal pause`, `/goal resume` (
 do what they say, and the right of the separator row shows the round, `⇒ 3/50`. Nothing goes into the system prompt or
 the tools: the goal talks to the model in hidden notes, the kickoff and one per round, and the reviewer's request is
 the model's last one with the question after it, so a prompt cache serves all but the question. The goal is kept in
-the session, per branch, and shows as the `/goal` typed, in a resumed session too.
+the session, per branch, and shows as the `/goal` typed, in a resumed session too. It is the package
+[@mrq/pi-goal](https://github.com/mrq1911/pi-goal), built in here; `install.sh` installs it for the npm pi as well
+(`pi install npm:@mrq/pi-goal` does it for any pi), and an installed copy takes the built-in one's place.
 
-`/loop` and `/goal` are extensions (`extensions/loop.ts`, `extensions/goal.ts`) that `install.sh` links into
-`~/.pi/agent/extensions`, so the npm pi loads them too, as it does `/rename`, another name for `/name`, for fingers
-trained on other agents.
+`/loop` is an extension (`extensions/loop.ts`) that `install.sh` links into `~/.pi/agent/extensions`, so the npm pi
+loads it too, as it does `/rename`, another name for `/name`, for fingers trained on other agents.
 Left alone, local models say what they are doing only in their thinking, which rolls by and folds away, so pi-vt420
 (not the npm pi) keeps them talking: a rule in the system prompt asks for a short sentence when the model starts
 something new, finds something or changes plan, and since small models forget a rule that far back, a note at the end

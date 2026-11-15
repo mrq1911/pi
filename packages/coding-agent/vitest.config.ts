@@ -16,6 +16,8 @@ export default mergeConfig(
 			server: {
 				deps: {
 					external: [/@silvia-odwyer\/photon-node/],
+					// through vite, so its pi imports reach pi's source as everything else's do
+					inline: [/@mrq\/pi-goal/],
 				},
 			},
 		},

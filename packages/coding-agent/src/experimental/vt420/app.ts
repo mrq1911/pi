@@ -22,6 +22,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { DEFAULT_RADIUS_GATEWAY } from "@earendil-works/pi-ai/providers/radius-config";
 import { fuzzyFilter, replaceControlCharacters } from "@earendil-works/pi-tui";
+import { GOAL_NOTE, type GoalNoteDetails } from "@mrq/pi-goal";
 import {
 	ATTR_BOLD,
 	cellCode,
@@ -67,7 +68,6 @@ import { getChangelogPath, normalizeChangelogLinks, parseChangelog } from "../..
 import { copyToClipboard } from "../../utils/clipboard.ts";
 import { LineEditor } from "./editor.ts";
 import { createExtensionUI } from "./extension-ui.ts";
-import { GOAL_NOTE, type GoalNoteDetails } from "./extensions/goal.ts";
 import { LOOP_NOTE, type LoopNoteDetails } from "./extensions/loop.ts";
 import { formatAge, formatDuration } from "./format.ts";
 import type { Keymap, Vt420Action } from "./keys.ts";
