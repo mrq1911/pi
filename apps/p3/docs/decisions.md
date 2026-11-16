@@ -369,3 +369,19 @@ older entries that say `docs/<file>` or `apps/p3/docs/<file>` now are `apps/p3/d
 - **Sign-in with Radius comes right after slice 1 (owner, 2026-11-15):** its own slice (25), with a small web and
   terminal scaffold and its own plain styles until Elanor's components arrive; the research is private
   (`/home/badlogic/chord-notes/research/p3-radius-signin.md`).
+- **Slice 1's review round 1 (owner, 2026-11-15):** the p3 kit has exactly one worker kind, sessions
+  (`src/kit/session-workers.ts`). A sign-in that ends (revoked, or expired unused) closes its own links at once,
+  through the close function Chord's HTTP component now hands `links.opened(request, principal, close)`; not through
+  `host.revoke`, which ends objects by principal and so would end the owner's shared objects for every device.
+- **The basics before iterating (owner, 2026-11-15):** slice 26 (the release build, the shipped package
+  `@earendil-works/p3` with types third-party plugins type-check against, the `p3` command with `server`, `status`,
+  `stop`, `restart`, a background supervisor, and several Pis on one machine by `--pi`/`--dir`), then slice 27 (a
+  terminal client scaffold that `p3` connects to), then slice 25 (sign-in with Radius); further arguments (mirroring
+  coding-agent's where sensible) are iterations on that base. The API is `@earendil-works/p3/v1`, no shorthand; the
+  built-in plugin is `@earendil-works/p3-sessions`; Chord exports the `Method` and `LiteralsSchema` types so
+  contracts can be named in declarations. The lockfile change of the rename is OK.
+- **Fable plans and reviews, never builds (owner, 2026-11-15):** builders are Opus; Fable writes designs, briefs and
+  reviews only. (Slice 14, the frame fixes, slice 1's redo and slice 26's first part were built by Fable before this
+  rule; each went through review rounds by Opus, Sol and Astra with mutation checks.)
+- **Correction (2026-11-15):** p3's sign-in cookie is `p3-<id>`, named after the Pi's random id (slice 26, several
+  Pis on one machine), not `p3-sign-in` as the slice 1 redo entry says. The API package is `@earendil-works/p3`.

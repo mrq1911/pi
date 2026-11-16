@@ -1689,7 +1689,9 @@ read, so in a commit group a later run lands in whatever pages cover its interva
 merge, which then know its rows and whether it was cut by its limit. A failed page fails the list until a run of
 that page succeeds; arguments the builder refuses fail it until arguments build again, and nothing read before may
 heal either. A bounded page reads at most four pages' rows: a bulk write past that is cut, the rest of its range loads
-next, and the value ends at the cut meanwhile, a prefix, never a hole. One list object per screen (a remote object
+next, and the value ends at the cut meanwhile, a prefix, never a hole. A commit that touches several pages (a row
+moving from one to another) is one frame of the list: the value after the commit, diffed from the value before it.
+One list object per screen (a remote object
 with the screen's own id in its params); a re-hold sends everything it has loaded. The object keeps each list's
 bookmarks by the list's name across its attempts: a reload's successor opens the pages the list had and goes live
 once each ran, one frame; arguments that follow a value and a provider's restart reopen every page under its
@@ -1821,8 +1823,9 @@ published before it runs.**
 diffed into ops for the wire. Sources are `Watchable`s and `NativeWatchable`s (documents, other derives, reference
 members, Durable's views, registry values); the result is always JSON (state is JSON only; bytes only in method arguments and results). A derive is marked dirty in the
 commit step and recomputed in the owner's flush right after it, so its change travels in the same message as its
-source (W1); a dirty derive nobody holds recomputes on its next read. A throwing derive fails only its member
-(`broken`). There is no `previous` (W14): `mapShared` keeps unchanged elements identical.
+source (W1); a dirty derive nobody holds recomputes on its next read. One commit is one frame of a derive, its
+value at the end of the commit diffed from the value before it, however often its sources changed in the commit and
+whoever read it in between. A throwing derive fails only its member (`broken`). There is no `previous` (W14): `mapShared` keeps unchanged elements identical.
 
 - **Built on what exists:** derives sit on Chord's internal publication primitive (not today's `cell.ts` or
   `replicatedState`); the diff is
