@@ -145,7 +145,9 @@ npm pi relinks `pi` to it, and `pi-vt420-update` puts it back.
   draws on an emulator in between, such as a zellij pane, the footer goes in the window title, π first, and its row
   to the transcript: vt420-term shows that title on the VT420's status line, over zellij's bar while zellij is in
   normal mode. Any other emulator gets the session's name, or else the directory, as its window title (or an
-  extension's title), and the title it had before back on exit, from the terminal's title stack.
+  extension's title), and the title it had before back on exit, from the terminal's title stack. Emulators, behind
+  vt420-term too, also hear what the agent is doing, as stock pi tells them (OSC 7501: working, blocked on a dialog or a
+  sign-in, done, failed), which zellij's inbox shows; a VT420 hears none of it, and `PI_PROGRAM_STATUS=0` turns it off.
 
 ## Keys
 

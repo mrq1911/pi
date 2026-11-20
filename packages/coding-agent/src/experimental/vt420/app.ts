@@ -21,7 +21,7 @@ import {
 	type Transport,
 } from "@earendil-works/pi-ai";
 import { DEFAULT_RADIUS_GATEWAY } from "@earendil-works/pi-ai/providers/radius-config";
-import { fuzzyFilter, replaceControlCharacters } from "@earendil-works/pi-tui";
+import { formatProgramStatus, fuzzyFilter, replaceControlCharacters } from "@earendil-works/pi-tui";
 import { GOAL_NOTE, type GoalNoteDetails } from "@mrq/pi-goal";
 import {
 	ATTR_BOLD,
@@ -63,6 +63,7 @@ import {
 	buildBundle as buildBugReport,
 	recordInSession as recordBugReport,
 } from "../../modes/interactive/bug-report.ts";
+import { ProgramStatusReporter } from "../../modes/interactive/program-status-reporter.ts";
 import { exportSessionForShare } from "../../modes/interactive/session-share.ts";
 import { getChangelogPath, normalizeChangelogLinks, parseChangelog } from "../../utils/changelog.ts";
 import { copyToClipboard } from "../../utils/clipboard.ts";
@@ -448,6 +449,14 @@ export class Vt420App {
 	private footerTitle = "";
 	/** An emulator not behind vt420-term gets a window title, as pi sets it. */
 	private readonly windowTitle: boolean;
+	/**
+	 * What the agent is doing, as stock pi tells terminals that ask (OSC 7501), for zellij's inbox and the like: sent to
+	 * emulators without asking first, which ignore what they do not know, and never to a VT420. PI_PROGRAM_STATUS=0 or 1
+	 * decides instead.
+	 */
+	private readonly reportStatus: boolean;
+	private readonly programStatus: ProgramStatusReporter;
+	private dialogs = 0;
 	private shownTitle = "";
 	/** The title an extension set, instead of pi's. */
 	private extensionTitle: string | undefined;
@@ -485,12 +494,22 @@ export class Vt420App {
 		this.saverHere = !caps.unicode && caps.level >= 4;
 		this.footerInTitle = caps.unicode && !caps.statusLine && behindVt420() !== undefined;
 		this.windowTitle = caps.unicode && !this.footerInTitle;
+		const statusSetting = process.env.PI_PROGRAM_STATUS;
+		this.reportStatus = statusSetting === "1" || (statusSetting !== "0" && caps.unicode);
+		this.programStatus = new ProgramStatusReporter(
+			() => ({
+				setProgramStatus: (status) => {
+					if (this.reportStatus && !this.closed) this.io.write(formatProgramStatus(status));
+				},
+			}),
+			() => this.session.sessionName,
+		);
 		this.saverMinutes = options.screensaverMinutes ?? SAVER_MINUTES;
 		const after = options.foldAfter;
 		this.foldAfter = typeof after === "number" && Number.isInteger(after) && after >= 0 ? after : "auto";
 		this.extensionUI = createExtensionUI({
-			select: (title, items, signal) => this.dialogSelect(title, items, signal),
-			input: (title, initial, signal) => this.dialogInput(title, initial, signal),
+			select: (title, items, signal) => this.blockedOn(title, () => this.dialogSelect(title, items, signal)),
+			input: (title, initial, signal) => this.blockedOn(title, () => this.dialogInput(title, initial, signal)),
 			notice: (level, text) => this.notice(level, text),
 			status: (text) => {
 				this.extensionStatus = text;
@@ -559,6 +578,7 @@ export class Vt420App {
 		}
 		await exited;
 		this.closed = true;
+		if (this.reportStatus) this.io.write(formatProgramStatus({ state: "clear" }));
 		// the next program's title, not pi's footer
 		if (this.footerInTitle) this.io.write("\x1b]2;\x1b\\");
 		// the title the window had before, from the terminal's title stack
@@ -604,6 +624,7 @@ export class Vt420App {
 
 	private async bindSession(): Promise<void> {
 		this.unsubscribe?.();
+		this.programStatus.reset();
 		const session = this.session;
 		await session.bindExtensions({
 			// dialogs without pi's TUI components, as in RPC mode
@@ -757,6 +778,7 @@ export class Vt420App {
 	}
 
 	private onSessionEvent(event: AgentSessionEvent): void {
+		this.programStatus.handleEvent(event);
 		switch (event.type) {
 			case "agent_start":
 				this.working = true;
@@ -1695,6 +1717,7 @@ export class Vt420App {
 		}
 		const controller = new AbortController();
 		this.loginController = controller;
+		this.programStatus.setBlocked("login", { kind: "auth", message: `Log in to ${providerId}` });
 		try {
 			await this.session.modelRuntime.login(providerId, authType, {
 				signal: controller.signal,
@@ -1709,8 +1732,20 @@ export class Vt420App {
 			);
 		} finally {
 			this.loginController = undefined;
+			this.programStatus.setBlocked("login", undefined);
 			if (this.mode.kind === "prompt") this.mode = { kind: "normal" };
 			this.requestRender();
+		}
+	}
+
+	/** An extension's dialog waits on the user, which the program status says while it is open. */
+	private async blockedOn<T>(title: string, open: () => Promise<T>): Promise<T> {
+		const source = `dialog-${++this.dialogs}`;
+		this.programStatus.setBlocked(source, { kind: "question", message: title.split("\n", 1)[0] ?? title });
+		try {
+			return await open();
+		} finally {
+			this.programStatus.setBlocked(source, undefined);
 		}
 	}
 

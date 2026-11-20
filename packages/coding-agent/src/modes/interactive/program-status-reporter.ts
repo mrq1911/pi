@@ -15,7 +15,7 @@ function firstLine(text: string | undefined): string {
  * and assistant output are never reported.
  */
 export class ProgramStatusReporter {
-	private readonly getTerminal: () => Terminal;
+	private readonly getTerminal: () => Pick<Terminal, "setProgramStatus">;
 	private readonly getSessionName: () => string | undefined;
 	private runActive = false;
 	private compacting = false;
@@ -27,7 +27,7 @@ export class ProgramStatusReporter {
 	private readonly blocked = new Map<string, BlockedStatus>();
 	private lastReport: string | undefined;
 
-	constructor(getTerminal: () => Terminal, getSessionName: () => string | undefined) {
+	constructor(getTerminal: () => Pick<Terminal, "setProgramStatus">, getSessionName: () => string | undefined) {
 		this.getTerminal = getTerminal;
 		this.getSessionName = getSessionName;
 	}

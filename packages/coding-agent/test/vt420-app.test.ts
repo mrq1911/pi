@@ -18,6 +18,7 @@ import { type LineOptions, SerialLine } from "@mrq/vt420-emu/line.js";
 import type { Vt420Setup } from "@mrq/vt420-emu/vt420.js";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
+import type { ExtensionFactory } from "../src/core/extensions/index.ts";
 import { Vt420App, type Vt420AppOptions, type Vt420Io, type Vt420Runtime } from "../src/experimental/vt420/app.ts";
 import loopExtension from "../src/experimental/vt420/extensions/loop.ts";
 import { Keymap } from "../src/experimental/vt420/keys.ts";
@@ -309,6 +310,50 @@ describe("vt420 app", () => {
 		await vt420.key("ctrl+d");
 		await vt420.done;
 		expect(vt420.output.join("")).not.toMatch(/\x1b\]0;|\x1b\[2[23];0t/);
+	});
+
+	it("tells an emulator what the agent is doing (OSC 7501), a dialog included, and a VT420 nothing", async () => {
+		const asking: ExtensionFactory = (pi) => {
+			pi.registerCommand("ask", {
+				description: "ask something",
+				handler: async (_args, ctx) => {
+					await ctx.ui.select("Pick one", ["this", "that"]);
+				},
+			});
+		};
+		const harness = await createHarness({ extensionFactories: [{ factory: asking }] });
+		harnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage("done")]);
+		const app = await start(harness, { unicode: true, supplemental: "latin1", statusLine: false });
+		const statuses = (running: Running): string[] =>
+			(running.output.join("").match(/\x1b\]7501;[^\x1b]*\x1b\\/g) ?? []).map((status) => status.slice(7, -2));
+		await app.submit("hello");
+		await waitForIdle(harness);
+		expect(statuses(app)).toEqual(["state=idle:app=pi", "state=working:app=pi", "state=done:app=pi"]);
+		await app.submit("/ask");
+		expect(statuses(app).at(-1)).toBe(
+			`state=blocked:app=pi:kind=question:msg=${Buffer.from("Pick one").toString("base64")}`,
+		);
+		await app.key("return");
+		expect(statuses(app).at(-1)).toBe("state=done:app=pi");
+		await app.key("ctrl+d");
+		await app.done;
+		expect(statuses(app).at(-1)).toBe("state=clear");
+
+		// a VT420 has no use for it, and PI_PROGRAM_STATUS=0 turns it off anywhere
+		const vt420 = await start(harness);
+		await vt420.key("ctrl+d");
+		await vt420.done;
+		expect(statuses(vt420)).toEqual([]);
+		process.env.PI_PROGRAM_STATUS = "0";
+		try {
+			const off = await start(harness, { unicode: true, supplemental: "latin1", statusLine: false });
+			await off.key("ctrl+d");
+			await off.done;
+			expect(statuses(off)).toEqual([]);
+		} finally {
+			delete process.env.PI_PROGRAM_STATUS;
+		}
 	});
 
 	it("brings back the session's prompts with Up when it resumes one", async () => {
